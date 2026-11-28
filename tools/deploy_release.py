@@ -205,9 +205,9 @@ def failure_line(error):
 
 
 def require_actual(actual, settings, image):
-    # Only owned checks name a provider check endpoint (docs/ai-assistant.md §5.2); a serving API never does.
-    require(not any(value.startswith('OPENETRM_PROVIDER_CHECK_ENDPOINT=') for value in actual['Config'].get('Env') or []),
-            'the serving API names a provider check endpoint')
+    # Only owned checks name a check endpoint (docs/ai-assistant.md §5.2, docs/issue-reports.md); a serving API never does.
+    require(not any(value.startswith(('OPENETRM_PROVIDER_CHECK_ENDPOINT=', 'OPENETRM_ISSUE_TRACKER_CHECK_ENDPOINT='))
+                    for value in actual['Config'].get('Env') or []), 'the serving API names a check endpoint')
     require(actual['Image'] == image and actual['State']['Running'] and actual['Config']['User'] == '1654:1654'
             and actual['HostConfig']['ReadonlyRootfs'], 'serving image/process mismatch')
     require(actual['HostConfig']['PortBindings'] == {'8080/tcp': [{'HostIp': settings['gatewayAddress'], 'HostPort': str(settings['gatewayPort'])}]}

@@ -57,7 +57,7 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
                 "WHERE p.permission='ManageModelProviders';") == 'access_administrator')
     tables = "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='assistant' AND c.relkind='r'"
     check('every page-assistant table forces row security',
-          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '35')
+          query(f"SELECT count(*) {tables};") == query(f"SELECT count(*) {tables} AND c.relrowsecurity AND c.relforcerowsecurity;") == '38')
     check('the runtime holds no privilege on any page-assistant table or column',
           query(f"SELECT count(*) {tables} AND(has_table_privilege('preview_runtime',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
                 "OR has_any_column_privilege('preview_runtime',c.oid,'SELECT,INSERT,UPDATE,REFERENCES'));") == '0')
@@ -68,7 +68,8 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
         'record_terms,record_tool_step,rename_model,replace_credential,retire_agent,revoke_grant,save_agent_version,start_turn,start_worker,'
         'stop_turn,turn_stream,unfinished_turn,usable_agents,usage_directory,usage_report,use_agent_admission,use_grant_admission,withdraw_price,'
         'workspace_grants,action_proposal,authorize_action,action_outcome,record_action_outcome,page_prompt_directory,save_page_prompt,workspace_sources,resolve_turn_context,search_history,'
-        'register_turn_inputs,turn_read_inputs').split(','))
+        'register_turn_inputs,turn_read_inputs,issue_report_policy_directory,save_issue_report_policy,my_issue_reports,request_issue_report,'
+        'admit_issue_report_dispatch,admit_issue_report_resend,complete_issue_report,issue_report_status,admit_issue_report_lookup,abandon_issue_report').split(','))
     private_definers = {'ask_turn_core','pin_page_prompt','pin_market_turn','start_turn_without_page_prompt','start_turn_with_page_prompt',
         'open_test_without_prompt','pin_installation_instructions','pin_operating_limits','turn_operating_limits','pin_agent_operating_policy','pin_grant_operating_policy'}
     check('runtime execution is limited to the named application operations and excludes private pin/trigger helpers',
@@ -81,6 +82,10 @@ def run_checks(url, query, psql, manifest, temporary, environment, dotnet, admin
     check('administration operations recheck ManageModelProviders in the database')
     contexts.delegated_agent(expect('PERFORM assistant.provider_directory();', '42501'))
     check('an agent never administers providers, even under a current delegation of ManageModelProviders')
+    contexts.delegated_agent(expect(f"PERFORM assistant.request_issue_report('{uuid4()}','bug','Synthetic title','Synthetic body','synthetic-owner/synthetic-tracker');", '42501'),
+                             permission='SubmitIssueReports')
+    contexts.delegated_agent(expect('PERFORM assistant.issue_report_policy_directory();', '42501'), permission='ManageIssueReporting')
+    check('an agent never submits an issue report or reads its policy, even under a current delegation of the permission')
     for arguments in ("'00000000-0000-0000-0000-000000000000','anthropic',0,repeat('0',64)",
                       f"'{uuid4()}','anthropic',-1,repeat('0',64)", f"'{uuid4()}','anthropic',0,'not-a-digest'"):
         contexts.runtime('admin', refused(f'PERFORM assistant.credential_slot({arguments});', 'model_admin_input'))

@@ -37,7 +37,7 @@ public sealed partial class AgentTools
         {
             if(tool=="read_workspace_page")members.Exactly("page");else members.Exactly("page","operation");
             var page=members.Text("page",1,64);
-            if(!PageReports.All.Contains(page)&&!(tool=="discover_page_operations"&&page=="all"))throw ToolInput.Invalid();
+            if(!PageReports.All.Contains(page)&&!(tool=="discover_page_operations"&&page is "all" or IssueReports.Page))throw ToolInput.Invalid();
             var operation=tool=="discover_page_operations"&&members.Has("operation")?members.Text("operation",1,128):null;
             return new(Operations[tool=="read_workspace_page"?"workspace.page_v1":"workspace.discover_v1"],new WorkspaceArguments(tool,page,operation,null));
         }

@@ -207,6 +207,7 @@ if(args is ["--swap-settlement-agent",var settlementAgentFixture]){await SwapSet
 if(args is ["--custom-curve-savers",var curveSaverFixture]){await CustomCurveSaverChecks.Run(curveSaverFixture);return;}
 if(args is ["--custom-curve-tool",var curveToolFixture]){await CustomCurveToolChecks.Run(curveToolFixture);return;}
 if(args is ["--reference-intake"]){await ReferenceCaptureChecks.Run();await ReferenceImportChecks.Run();return;}
+if(args is ["--issue-tracker"]){await IssueTrackerChecks.Run();return;}
 if(args is ["--reference-import-plan",var referenceOutput]){await ReferenceImportChecks.Run(referenceOutput);return;}
 if(args is ["--swap-change-review"]){SwapChangeReviewChecks.Run();return;}
 if(args is ["--whole-term-swaps"]){WholeTermSwapAssemblyChecks.Run();return;}

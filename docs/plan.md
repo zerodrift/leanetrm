@@ -1,5 +1,13 @@
 # Delivery plan and acceptance criteria
 
+D461 adds [issue reports](issue-reports.md): a signed-in person sends a reviewed
+report to the installation's one configured tracker and receives the issue's
+number and link. Policy revisions, retained requests, single dispatch admission
+and unconfirmed outcomes are implemented with local checks against a synthetic
+tracker. The assistant drafts a report for the person's authorization, and the
+browser has the policy form and a Report an issue dialog. `automatic` submission
+and hosted wiring remain work; `automatic` needs its own decision.
+
 D459 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
 retained shares, daily bands/shortfalls and payment dates; exact reconciliation;
 gas-native one-off lifecycle work; and bounded recurring book/date assessment

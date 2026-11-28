@@ -90,6 +90,7 @@ import type {FuturesProductRead} from './futures-product-model.js';
 import {type Preferences,newPreferences,validTimeZone,zoneChoices} from './preferences.js';
 import {preferenceSession} from './preference-session.js';
 import {setupOperatingPolicy} from './operating-policies.js';
+import {setupIssueReportPolicy,setupIssueReports} from './issue-reports.js';
 import {setupShortcutEditor} from './shortcut-view.js';
 import {apiRefusal,readRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
@@ -217,7 +218,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  recInventory.sync();structuredPower.sync();deliverySetup.sync();referenceConsole.sync();riskViewsNav.sync();lifecycle.sync();physicalOperations.sync();pointTraderMark.sync();curveMarks.sync();curveWorkspace.sync();facilities.sync();futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();priceSetup.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy||!!curveRead||!!pageRead?.pending));markWorkspaceReady();
+  recInventory.sync();structuredPower.sync();deliverySetup.sync();referenceConsole.sync();riskViewsNav.sync();lifecycle.sync();physicalOperations.sync();pointTraderMark.sync();curveMarks.sync();curveWorkspace.sync();facilities.sync();futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();issueReportPolicy.sync();issueReports.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();priceSetup.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy||!!curveRead||!!pageRead?.pending));markWorkspaceReady();
 
 }
 function renderWorkspaceMode(){
@@ -1312,7 +1313,7 @@ async function loadIdentity(initialAccess?:unknown){
   recInventory.reset();$('rec-inventory-page').hidden=true;structuredPower.reset();$('physical-power-page').hidden=true;lifecycle.reset();$('lifecycle-page').hidden=true;physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset(true);$('vol-surfaces-page').hidden=true;optionChains.reset();$('options-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
 
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();$('curve-definitions-page').hidden=true;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
-  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
+  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();issueReportPolicy.reset();issueReports.reset();$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -1452,6 +1453,9 @@ $('profile-dialog').addEventListener('close',agentGrants.hide);
 // Administration › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
 const accessPolicy=setupOperatingPolicy($('access-policy-page'),'access',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAccess'),busy:()=>busy});
 const assistantPolicy=setupOperatingPolicy($('assistant-policy-page'),'assistant',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAgents'),busy:()=>busy});
+const issueReportPolicy=setupIssueReportPolicy($('issue-report-policy-page'),{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageIssueReporting'),busy:()=>busy});
+// Report an issue is reachable from every page, so it is a dialog and not a page of its own.
+const issueReports=setupIssueReports($('issue-report-dialog') as HTMLDialogElement,$('issue-report-open') as HTMLButtonElement,{api,identity:()=>administrationScope+':'+currentProfile,can:()=>can('SubmitIssueReports')});
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
 // Curve definitions preview at the header's selected close.
 const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},
@@ -1765,7 +1769,7 @@ async function showPage(next:string){
     case 'configuration':await setPage('configuration');await priceSetup.load();return;
     case 'curve-definitions':await setPage('curve-definitions');curveDefinitions.element.hidden=false;nativeCurveInspector.element.hidden=true;await curveDefinitions.load();return;
     case 'parties':await setPage('parties');await parties.load();return;
-    case 'admin':await setPage('admin');await accessPolicy.load();if(can('ManageIdentities'))await administration.load();return;
+    case 'admin':await setPage('admin');await accessPolicy.load();await issueReportPolicy.load();if(can('ManageIdentities'))await administration.load();return;
     case 'ai':await setPage('ai');await assistantPolicy.load();await aiSettings.load();return;
     // A Blotter in a window of its own is brought to the front, and drawn nowhere else.
     case 'futures':await setPage('futures');if(futures.poppedOut()){futures.front();return;}if(select('snapshot').value)readPage('futures',()=>futures.open());return;
@@ -1871,7 +1875,7 @@ function unsaved(){
     case 'interval-series':return intervalSeries.unconfirmed();
     case 'dashboard':return dashboard.unconfirmed();
     case 'jobs':return jobs.unconfirmed();
-    case 'admin':return administration.unconfirmed()||accessPolicy.unconfirmed();
+    case 'admin':return administration.unconfirmed()||accessPolicy.unconfirmed()||issueReportPolicy.unconfirmed();
     case 'ai':return aiSettings.unconfirmed()||assistantPolicy.unconfirmed();
     default:return false;
   }

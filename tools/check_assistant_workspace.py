@@ -11,7 +11,7 @@ from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 
 
-def run_checks(url, query, manifest, fake, trap, psql, environment):
+def run_checks(url, query, manifest, fake, trap, psql, environment, tracker):
     passed = 0
 
     def check(name, condition):
@@ -447,5 +447,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
 
     from check_assistant_history import run_checks as history_checks
     history_checks(ask, check, owner, trader, agent, query, stamp)
+    from check_issue_report_assistant import run_checks as issue_report_checks
+    issue_report_checks(ask, check, admin, owner, trader, tracker)
     check('no model request reaches configured proxy traps', trap.connections == 0)
     print(f'PASS {passed} assistant workspace integration checks', flush=True)

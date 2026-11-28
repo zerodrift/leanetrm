@@ -149,6 +149,8 @@ def main():
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
     parser.add_argument('--historical-pool-check',action='store_true',help='Farm out synthetic historical settlement scenarios across two actual managed workers')
     parser.add_argument('--jobs-check',action='store_true',help='Qualify owned jobs and the shared infrastructure screen')
+    parser.add_argument('--issue-report-check',action='store_true',help='Qualify issue report submission against a loopback synthetic tracker')
+    parser.add_argument('--with-issue-tracker',action='store_true',help='Connect this preview to a loopback synthetic issue tracker, so issue reports can be tried by hand')
     parser.add_argument('--reference-import-check',action='store_true',help='Qualify private inactive reference intake in an owned database')
     parser.add_argument('--reference-demo-check',action='store_true',help='Qualify additive demo references and cross-version discounted swaps')
     parser.add_argument('--with-regional-seed',action='store_true',help='Add the explicit 2020 regional currency examples preset (NYC/UK closes and GBP/EUR/CAD swaps)')
@@ -287,7 +289,7 @@ def main():
     if args.context_read_check:
         args.check=True
         if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
-    if args.side_calendar_check or args.lifecycle_swap_browser_check or args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.contract_observation_curve_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.side_calendar_check or args.lifecycle_swap_browser_check or args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.async_workbench_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.issue_report_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.contract_observation_curve_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -1042,6 +1044,18 @@ def main():
             fake_provider,proxy_trap=FakeProvider(),Trap()
             api_env={**app_env,'OPENETRM_PROVIDER_CHECK_ENDPOINT':fake_provider.url,'no_proxy':'','NO_PROXY':'',
                      **{name:proxy_trap.url for name in ('http_proxy','https_proxy','all_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')}}
+        if args.issue_report_check or args.assistant_workspace_check or args.with_issue_tracker:
+            # The tracker connection names a loopback fake and a key made for this run (docs/issue-reports.md).
+            from fake_issue_tracker import FakeIssueTracker
+            issue_tracker=FakeIssueTracker('synthetic-owner/synthetic-tracker')
+            tracker_key=temporary/'issue-tracker-key.pem'
+            subprocess.run(['openssl','genrsa','-out',str(tracker_key),'2048'],check=True,capture_output=True,timeout=30)
+            tracker_key.chmod(0o600)
+            tracker_config=temporary/'issue-tracker.json'
+            tracker_config.write_text(json.dumps(dict(repository=issue_tracker.repository,appId='synthetic-app',installationId=42,privateKeyFile=str(tracker_key),
+                                                      apiVersion='2022-11-28',connectSeconds=2,responseSeconds=10,maximumResponseBytes=1048576)))
+            tracker_config.chmod(0o600)
+            api_env={**api_env,'OPENETRM_ISSUE_TRACKER_CONFIG':str(tracker_config),'OPENETRM_ISSUE_TRACKER_CHECK_ENDPOINT':issue_tracker.url}
         child=subprocess.Popen([str(dotnet),str(frozen_dll),'--local-preview'],cwd=ROOT,env=api_env,stdout=log,stderr=subprocess.STDOUT)
         deadline=time.monotonic()+20
         while time.monotonic()<deadline:
@@ -1800,6 +1814,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--reference-editor'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned reference-editor browser checks failed')
+            elif args.issue_report_check:
+                from check_issue_report_http import run_checks as check_issue_reports
+                check_issue_reports(url,query,issue_tracker,temporary/'app.log')
             elif args.jobs_check:
                 from check_jobs_http import observe_nodes, run_checks as check_jobs
                 check_jobs(url,query)
@@ -1977,7 +1994,7 @@ def main():
                 from check_assistant_digest import run_checks as check_assistant_digest
                 check_assistant_digest(dotnet)
                 from check_assistant_workspace import run_checks as check_assistant_workspace
-                check_assistant_workspace(url,query,manifest,fake_provider,proxy_trap,psql,app_env)
+                check_assistant_workspace(url,query,manifest,fake_provider,proxy_trap,psql,app_env,issue_tracker)
                 if args.browser_check:
                     target=temporary/'assistant-workspace-browser.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control()}))

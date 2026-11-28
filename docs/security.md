@@ -100,7 +100,10 @@ The ten human roles that read trades hold `ReadRecInventory` and
 administration holds `ConfigureRecInventory`. Gas delivery operations and Gas service
 setup hold `RecordGasOwnedHoldings`, and Gas service setup holds
 `ConfigureGasOwnedHoldings`. No agent-only role changes, and no person is assigned a
-role. Users & access serves role names/permissions from the stored catalog.
+role. Migration 0412 adds the two [issue report](issue-reports.md) capabilities (D461):
+the six human role templates of migration 0003 hold `SubmitIssueReports`, Access
+administrator holds `ManageIssueReporting`, and no agent role holds either.
+Users & access serves role names/permissions from the stored catalog.
 
 The initial role-grant trigger kept the agent reader role to agent principals and
 agent principals to it, even for the database owner, while any grant can still be revoked;

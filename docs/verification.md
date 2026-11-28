@@ -1,5 +1,49 @@
 # Local verification and continuous integration
 
+## Issue reports (D461)
+
+Run locally on 2026-11-27 on macOS with stock PostgreSQL 18 and the pinned .NET
+SDK, against disposable databases, synthetic data and a loopback synthetic
+tracker. No real tracker was called.
+
+Each new check was written before the code it exercises and failed first: the
+storage check on the missing permissions, the adapter check on the missing
+types, and the HTTP check on the missing routes.
+
+| Check | Result |
+| --- | --- |
+| `tools/check_issue_reports.py` | Passes its four groups: policy, requests, uncertain delivery, dispatch authority |
+| `OpenEtrm.Api.Checks -- --issue-tracker` | Passes |
+| `tools/run_preview.py --issue-report-check` | Passes its three groups through the six routes |
+| `python -m unittest discover -s tests` | 212 tests pass, including the deployment guard for the tracker check endpoint and the check registration |
+| `OpenEtrm.Api.Checks -- --assistant-prompts`, `-- --assistant-workspace` | Pass unchanged |
+| `tools/check_operating_settings.py` | Passes unchanged |
+| `tools/run_preview.py --check` | Passes, 1,587 lines |
+| `tools/run_preview.py --check --assistant-workspace-check` | Passes, 202 lines |
+| `tools/run_preview.py --check --assistant-check` | Passes, 903 lines, after two expected updates |
+
+The two updates to `tools/check_model_providers.py` follow from migration 0412
+adding to the `assistant` schema: the count of tables forcing row security goes
+from 35 to 38, and the ten issue report operations join the list of functions
+the runtime may execute. The same check now also asserts that an agent's
+delegated context is refused for submitting a report and for reading the
+policy.
+
+An independent adversarial review read the migration, handler, adapter and
+checks, ran its own experiments and reported eleven findings. Authorization,
+single admission and the absence of a second issue without an explicit resend
+held. The most serious finding was that a resend could settle a report as
+`failed` while the earlier attempt's issue existed. The findings are resolved in
+the code and covered by the checks above, except two kept as known limits in the
+[contract](issue-reports.md#known-limits): a report has no per-attempt history,
+and a failed report still counts toward the person's daily limit.
+The fixes have not had a second independent review.
+
+Not run: `tools/check_all.py` as a whole, which refuses the locally installed
+Node 24.22.3 against the pinned 24.22.0; the browser suites; the frontend
+tests, since no browser source changed; the remaining preview groups; and CI.
+No hosted installation is qualified by this evidence.
+
 ## Gas trade details and Blotter updates in the swing browser checks
 
 On 26 and 27 November 2026 (UTC) the gas swing browser checks failed in four

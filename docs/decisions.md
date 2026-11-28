@@ -8098,3 +8098,53 @@ and position reads to every other trade reader, the narrowing D444 rejected for
 operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
+
+## D461 — People send issue reports to the installation's tracker
+
+Requested by the owner on 2026-11-27: the application should be able to file an
+issue on the project's public tracker, with an administrator choosing whether a
+submission is reviewed or automatic. This decision covers the first part and
+names what it leaves open. [Issue reports](issue-reports.md) is the contract.
+
+Decided:
+
+- The feature is called an issue report. "Ticket" already names the deal ticket.
+- Submission is a native operation for a signed-in person acting for
+  themselves. It is off until an access administrator saves a policy revision:
+  `disabled`, or `review_required` with an explicit daily limit per person.
+  Nothing is assumed from an absent policy (migration 0412).
+- The tracker connection is private installation configuration naming one
+  repository and one GitHub App. No request, person, model or workspace
+  administrator selects a repository. The app's token is requested per exchange,
+  limited to issues in that repository, and never retained.
+- A request is retained once per person and request identity (D238). Dispatch is
+  admitted once, in its own commit, under the permission and policy current at
+  that moment. An outcome the tracker did not confirm is `uncertain`. Nothing is
+  sent again without the person's explicit resend, and a resend looks for the
+  report's marker before creating.
+- The six human role templates hold `SubmitIssueReports`; Access administrator
+  holds `ManageIssueReporting`; the agent reader role holds neither.
+
+Not decided, and not built:
+
+- `automatic` submission by an agent. It would be the first effect an agent
+  executes without a person's authorization (D240, D284), and which content it
+  may send to a public tracker is unresolved. The policy accepts no such mode.
+- The hosted installation's wiring for the tracker connection.
+
+The assistant and the browser were added under the same decision. The assistant
+drafts a report as an ordinary approval-required command in its operation
+catalog, and the person authorizes the exact text (D284); it gains no way to
+submit, to name a repository, or to look up, resend or abandon a report. People
+reach the same operations through a dialog available on every page, and the
+policy through Users & access.
+
+Rejected for this part: a GitHub credential stored per workspace in the
+database, which a workspace administrator could point at any repository; a
+prefilled tracker form as the submission path, which gives the application no
+receipt; and a worker-dispatched queue, which adds a second process and lease
+before one synchronous exchange has shown a need for it.
+
+Local verification is listed in the contract. It uses a loopback synthetic
+tracker; no real tracker or hosted installation is qualified by it.
+

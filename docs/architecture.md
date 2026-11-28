@@ -1,5 +1,13 @@
 # Architecture and domain contracts
 
+D461 adds [issue reports](issue-reports.md), the first operation whose effect is
+in an external tracker. The request is retained before anything is sent,
+dispatch is admitted once under current authority, and an outcome the tracker
+did not confirm stays uncertain until it is found by its marker or the person
+resolves it. The connection is private installation configuration for one
+repository. The assistant can draft a report as an approval-required command;
+only the person's authorization submits it.
+
 D459 adds [daily gas entry billing and scoped processing](gas-cash-billing.md).
 An explicit successor profile uses retained shares, daily quantity parts and
 payment dates. Reconciliation compares exact contract, schedule and final facts;

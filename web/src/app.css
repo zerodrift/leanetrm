@@ -3305,3 +3305,12 @@ header>div:first-child{flex:1 1 160px}
  main>header .context-toolbar:has(.context-help[open],.as-of-context[open]){grid-column:1/-1}
  main>header #profile-open .profile-text{display:none}
 }
+.issue-report-dialog{width:min(640px,calc(100vw - 32px))}
+.issue-report-dialog form{display:grid;gap:10px;margin-bottom:20px}
+.issue-report-dialog label{display:grid;gap:4px}
+.issue-report-dialog label:has(input[type=checkbox]){display:block}
+.issue-report-dialog textarea,.issue-report-dialog input:not([type=checkbox]),.issue-report-dialog select{width:100%;min-width:0}
+.issue-report{border-top:1px solid var(--border);padding:8px 0}
+.issue-report p{margin:0 0 6px;overflow-wrap:anywhere}
+.issue-report-status:empty{display:none}
+.issue-report-status{font-weight:600;margin:0 0 12px}
