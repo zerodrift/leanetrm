@@ -44,11 +44,13 @@ def measure_worker(command, cwd, env, timeout):
             fields = reading.split()
             size, state = fields if len(fields) == 2 else ('', '')
             rss = int(size) if size.isascii() and size.isdecimal() else None
-            # ps(1) reports Z for a zombie. On macOS its E suffix means the
-            # process is exiting: its pages can already be gone before waitpid is ready.
-            exiting = rss == 0 and re.fullmatch(r'[?IRSTUZ][+<>AELNSsVWX]*', state) and (
-                state.startswith('Z') or 'E' in state[1:])
-            if sample.returncode or rss is None or (rss == 0 and not exiting):
+            # A zero reading is expected only from a worker that has not been measured yet or
+            # is exiting. A started process can be listed with no resident pages before it has
+            # run. ps(1) reports Z for a zombie. On macOS its E suffix means the process is
+            # exiting: its pages can already be gone before waitpid is ready.
+            expected_zero = rss == 0 and re.fullmatch(r'[?IRSTUZ][+<>AELNSsVWX]*', state) and (
+                first is None or state.startswith('Z') or 'E' in state[1:])
+            if sample.returncode or rss is None or (rss == 0 and not expected_zero):
                 raise RuntimeError(f'Invalid worker RSS sample for PID {process.pid}: '
                                    f'ps status {sample.returncode}, reading {reading!r}.')
             if rss > 0:

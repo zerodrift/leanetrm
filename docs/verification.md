@@ -1,5 +1,54 @@
 # Local verification and continuous integration
 
+## Worker memory samples before a worker has run
+
+On 28 November 2026 (UTC) the hosted risk verification of an unrelated change
+stopped in the hybrid Monte Carlo risk check with `Invalid worker RSS sample for
+PID 14700: ps status 0, reading '0 R'.`
+([job](https://github.com/zerodrift/leanetrm/actions/runs/46086789647/job/140798306846)).
+`measure_worker` samples a fresh worker with `ps` every 50 ms from the moment
+it is started, and refused a zero reading from any worker that was not exiting.
+
+A process that has just been started can be listed as runnable with no
+resident pages. On Linux 6.18 with four processors, reading `/proc/<pid>/stat`
+in a loop from the start of a child to its exit, 300 children each:
+
+| Child | Parent | Children first read as `R` with zero RSS |
+| --- | --- | ---: |
+| `sleep 0.02` | four processors | 246 |
+| `sleep 0.02` | one processor (`taskset -c 0`) | 300 |
+| `python3 -c pass` | one processor | 199 of 200 |
+
+`ps` takes a few milliseconds to start and normally reads after that window.
+The failure was not reproduced with `ps` itself: the previous sampler measured
+700 children that slept 0.06 to 0.16 s without an error, 200 on four
+processors, 200 on one and 300 on two processors shared with four busy loops.
+The changed sampler gave the same 700 results.
+
+A zero reading is now also accepted from a worker in a recognized state until
+its first positive sample. After that sample a zero reading is refused unless
+the worker is exiting, as before, and a worker that exits without a positive
+sample still cannot qualify.
+
+The same loop also read `R` or `D` with zero RSS after a positive reading, as
+a child exited and before it was listed as a zombie, in 294 of the 300
+four-processor children. A sample there is still refused. None of the 1,400
+`ps` measurements above met it.
+
+Against the previous sampler the four new checks failed. A worker read as
+`0 R`, or as `0 R`, `0 S` and `0 ?`, and then as `128 S` and `256 S` was refused
+at its first reading instead of measuring 128 and 256 KiB. A worker read as
+`0 R`, `128 S` and `0 R` was refused at its first reading rather than its third.
+A worker that only ever read `0 R` was refused as an invalid sample rather than
+for exiting without a positive one.
+
+| Check | Result |
+| --- | --- |
+| `python3 -m unittest tests.test_check_gas_swing_numerics` | 15 OK |
+| `python3 -m unittest discover -s tests -p 'test_*.py'` | 215 OK |
+
+The hosted risk verification has not run with this change.
+
 ## Gas trade details and Blotter updates in the swing browser checks
 
 On 26 and 27 November 2026 (UTC) the gas swing browser checks failed in four

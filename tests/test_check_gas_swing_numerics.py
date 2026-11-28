@@ -48,13 +48,16 @@ class SwingOracleChecks(unittest.TestCase):
 
     def test_worker_rss_rejects_live_sample_failures_and_reaps_child(self):
         valid = subprocess.CompletedProcess(['ps'], 0, '200 R')
+        # A zero reading from a worker that is not exiting is refused once it has been measured.
+        measured_only = [
+            subprocess.CompletedProcess(['ps'], 0, '0 R'),
+            subprocess.CompletedProcess(['ps'], 0, '0 S'),
+            subprocess.CompletedProcess(['ps'], 0, '0 ?'),
+        ]
         failures = [
             subprocess.CompletedProcess(['ps'], 1, ''),
             subprocess.CompletedProcess(['ps'], 1, '200 R'),
             subprocess.CompletedProcess(['ps'], 0, ''),
-            subprocess.CompletedProcess(['ps'], 0, '0 R'),
-            subprocess.CompletedProcess(['ps'], 0, '0 S'),
-            subprocess.CompletedProcess(['ps'], 0, '0 ?'),
             subprocess.CompletedProcess(['ps'], 0, '0 UNKNOWN_STATE'),
             subprocess.CompletedProcess(['ps'], 0, '-1 ?E'),
             subprocess.CompletedProcess(['ps'], 0, 'unreadable Z'),
@@ -62,7 +65,7 @@ class SwingOracleChecks(unittest.TestCase):
             OSError('ps unavailable'),
         ]
         for prefix in ([], [valid]):
-            for failure in failures:
+            for failure in failures + (measured_only if prefix else []):
                 with self.subTest(previous_samples=len(prefix), failure=failure):
                     process = Mock(pid=123, returncode=0)
                     # A final valid sample would let a worker with a lost reading qualify.
@@ -80,6 +83,43 @@ class SwingOracleChecks(unittest.TestCase):
                     self.assertEqual([valid], readings)
                     process.kill.assert_called_once()
                     process.wait.assert_called_once()
+
+    def test_worker_rss_waits_for_a_started_worker_to_be_measured(self):
+        # A started worker can be listed with no resident pages before it has run.
+        for unmeasured in (['0 R'], ['0 R', '0 S', '0 ?']):
+            with self.subTest(unmeasured=unmeasured):
+                process = Mock(pid=123, returncode=0)
+                readings = [subprocess.CompletedProcess(['ps'], 0, reading)
+                            for reading in [*unmeasured, '128 S', '256 S']]
+                process.poll.side_effect = lambda: None if readings else 0
+                with patch.object(subprocess, 'Popen', return_value=process), \
+                     patch.object(subprocess, 'run', side_effect=lambda *a, **kw: readings.pop(0)), patch('time.sleep'):
+                    self.assertEqual((128, 256), run_preview.measure_worker(['worker'], None, {}, 1))
+                process.kill.assert_not_called()
+                process.wait.assert_called_once()
+
+    def test_worker_rss_refuses_a_zero_reading_after_a_positive_sample(self):
+        process = Mock(pid=123, returncode=0)
+        readings = [subprocess.CompletedProcess(['ps'], 0, reading) for reading in ['0 R', '128 S', '0 R', '256 S']]
+        process.poll.side_effect = lambda: None if readings else 0
+        with patch.object(subprocess, 'Popen', return_value=process), \
+             patch.object(subprocess, 'run', side_effect=lambda *a, **kw: readings.pop(0)), patch('time.sleep'):
+            with self.assertRaisesRegex(RuntimeError, "Invalid worker RSS sample for PID 123: ps status 0, reading '0 R'"):
+                run_preview.measure_worker(['worker'], None, {}, 1)
+        self.assertEqual(['256 S'], [reading.stdout for reading in readings])
+        process.kill.assert_called_once()
+        process.wait.assert_called_once()
+
+    def test_worker_that_is_never_measured_cannot_qualify(self):
+        process = Mock(pid=123, returncode=0)
+        readings = [subprocess.CompletedProcess(['ps'], 0, '0 R'), subprocess.CompletedProcess(['ps'], 0, '0 R')]
+        process.poll.side_effect = lambda: None if readings else 0
+        with patch.object(subprocess, 'Popen', return_value=process), \
+             patch.object(subprocess, 'run', side_effect=lambda *a, **kw: readings.pop(0)), patch('time.sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'positive RSS'):
+                run_preview.measure_worker(['worker'], None, {}, 1)
+        process.kill.assert_not_called()
+        process.wait.assert_called_once()
 
     def test_worker_rss_exit_race_requires_a_positive_sample_and_reaps(self):
         # A vanished PID returns no match. A worker can lose its pages in exit before waitpid is ready.
