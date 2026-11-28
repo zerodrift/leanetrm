@@ -1,4 +1,4 @@
--- D468: explicit stock PostgreSQL 18 -> 19 continuity. Preparation and
+-- D469: explicit stock PostgreSQL 18 -> 19 continuity. Preparation and
 -- admission are private installation-owner operations under a writer fence.
 BEGIN;
 SET LOCAL search_path=pg_catalog;

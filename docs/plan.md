@@ -1,11 +1,17 @@
 # Delivery plan and acceptance criteria
 
-D468 adds [PostgreSQL 19 qualification and major-upgrade continuity](postgresql-upgrade.md).
+D469 adds [PostgreSQL 19 qualification and major-upgrade continuity](postgresql-upgrade.md).
 Fresh installations and CI select stock 19.0. Existing 18 installations require
 an independently reviewed copy upgrade, exact schema/data/sequence preservation,
 retained commit evidence, explicit physical admission and a recoverable old
 cluster. Changing the Compose image alone does not perform that transition.
 Other major-version transitions require their own qualification.
+
+D468 corrects [assistant page reports](assistant-workspace.md#page-identity-and-observation-d468)
+and refresh notifications, with explicit digest coverage and question-time
+provenance. Physical page reader composition, typed delivery controls with
+completion receipts and installed-release application help remain the active
+P45 work. Browser and Python execution research is deferred.
 
 D467 adds [issue reports](issue-reports.md): a signed-in person sends a reviewed
 report to the installation's one configured tracker and receives the issue's
@@ -2003,6 +2009,13 @@ Independent review covers asynchronous behavior, result publication, current
 authorization and retained-version boundaries.
 
 ## Milestone 5 — AI-operated application
+
+P45 focuses on [responsive page assistance and application knowledge](assistant-tools-design.md).
+D468 fixes incorrect identity, selection and refresh reporting. Next compose
+physical-delivery reads under the existing question context, add observed typed
+actions with completion receipts, and supply release-bound application help.
+The proposed browser/Python execution boundary is deferred to later work; no
+external tool is implemented or enabled.
 
 The bounded model-administration extension D213 adds explicit fixed/alias policy
 on immutable capability versions. Alias support keeps exact served-identifier

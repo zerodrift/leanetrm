@@ -1,5 +1,70 @@
 # Workspace assistant operations and page guidance
 
+## Page identity and observation (D468)
+
+The rendered `data-assistant-*` attributes locate presentation targets, review
+controls and modal sheets for walkthroughs. They are not a hidden page-data feed.
+The browser builds an explicit page report from each controller's state when a
+question is sent. The server validates and retains that report. Page reads use
+authorized native operations, not the rendered HTML or unsaved form values.
+
+`read_workspace_page` returns selection pointers only for the page from which the
+question was asked. Its `pageStateSource` is `question` for that page and
+`unobserved` for another destination; an unobserved destination has an empty
+selection. Reading its operation catalog does not establish what the browser
+currently displays. `read_page_digest` similarly names `pageStateSource: question`
+and distinguishes `coverage: data`, `controls`, or `identity_and_selection`.
+`data` describes that digest's bounded data projection, not exhaustive page
+coverage. These fields do not change financial context acquisition or authority.
+
+The question's page snapshot and financial context have different purposes.
+Changing a page after asking does not rewrite its report or repin the turn's
+financial reads. Live page observations after navigation require the proposed
+[page-action protocol](assistant-tools-design.md#page-observation-and-verified-presentation).
+That protocol and model-visible action completion receipts remain unimplemented.
+
+The local correction covers:
+
+- Gas day position (`facility_outlook`), Trades and volumes (`facility_trades`)
+  and Curve definitions (`curve_definitions`) retain separate identities. They
+  admit questions and configurable guidance, but do not claim a data reader or
+  issue navigation targets. Date rules reports the existing `contract_definitions`
+  reader; Date schedules reports `schedules`.
+- Physical operations includes its explicit gas/crude/LNG desk alongside any
+  exact instrument revision, delivery day, Side and stage pointers. Older reports
+  without a desk remain unspecified. A mismatched desk/instrument is refused.
+- Delivery refresh reports cleared selection at read start and completion,
+  including failure and removal of widgets after a later failed read. Facilities
+  selection changes notify the assistant. Back restores each named Facilities
+  section or explicit physical desk, with retained-request guards before any
+  context change; exact physical row/stage restoration remains incomplete.
+- Unsupported pages say that their data cannot be read, rather than describing
+  operations that their page reader does not expose.
+
+Migration **0415**, matching API and browser assets are required for the new
+identities. It extends prompt admission only and preserves existing guidance and
+turn records. It grants no operation and installs no guidance text. Its guard
+refuses a changed predecessor definition or execution privileges.
+
+The source audit establishes the following coverage boundaries; it does not
+qualify model task completion or a deployed installation:
+
+| View | Current page information and remaining boundary |
+| --- | --- |
+| Blotter, supported saved trades and futures/swap entry | Selection, bounded data summaries, issued targets and the richest typed presentation controls; unsupported product inspectors and entries retain separate identity-only reports. |
+| Trade deliveries | Desk and exact selection; selected gas-day automatic reading retrieves operations. Quantity heads and facility allocations are separate native reads and are not composed into this page result. Other tabs/families can return operation metadata without their displayed data. |
+| Facility allocations | Native quantity directory or explicitly selected ledger under the operating date and cutoff. |
+| Other Facilities views, including Nominations and Receipts & dispatches | Separate identity-only reports. Outlook, trades, definitions, physical activity, capacity, route plans and both delivery workbenches still need qualified page readers and control adapters. |
+| Curves & prices, date libraries/rules, reference data, parties, Curve builder and jobs | Existing dedicated readers; their bounded projections are not a complete rendered-page snapshot. Curve definitions is distinct and identity-only. |
+| Risk | Named subview and authorized job directory or selected retained report; this does not read every interactive risk view's visible contents. |
+| Lifecycle, setup, delivery prices, interval data/curves and administration | Native operation catalogs with the existing qualified selected/directory reads; catalog discovery alone does not imply full page coverage. |
+| Dashboard, operating facilities, REC inventory, physical booking pages, volatility/options | Identity-only reports where admitted. Contract pricing, Publications and curve-mark authoring currently leave the panel unavailable. |
+
+Non-Blotter presentation generally supports issued destinations, explanation,
+review, pause and page scrolling. Physical trade/day/stage selection is not yet
+an interactive model control. Walkthrough `presented` acknowledges a retained
+plan; browser completion or failure is still local to the panel.
+
 ## Personal chat-history search (D427)
 
 Personal Settings offers **Allow searching my chat history**, initially unchecked

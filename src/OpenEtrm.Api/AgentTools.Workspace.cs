@@ -71,8 +71,10 @@ public sealed partial class AgentTools
                 if(arguments.Kind=="read_workspace_page")
                 {
                     value["page"]=arguments.Page;value["presentation"]=WalkthroughPlans.Capabilities(arguments.Page!);
-                    value["selection"]=JsonNode.Parse(turn.PageReport.GetProperty("selection").GetRawText());
-                    var selection=arguments.Page==turn.PageReport.GetProperty("page").GetString()?turn.PageReport.GetProperty("selection"):JsonSerializer.SerializeToElement(new{});
+                    var observed=arguments.Page==turn.PageReport.GetProperty("page").GetString();
+                    var selection=observed?turn.PageReport.GetProperty("selection"):JsonSerializer.SerializeToElement(new{});
+                    value["selection"]=JsonNode.Parse(selection.GetRawText());
+                    value["pageStateSource"]=observed?"question":"unobserved";
                     if(PageReports.SelectedRead(arguments.Page!,selection) is {} selected)
                     {
                         var selectedRead=await workspace.Read(turn,selected.Operation!,selected.Input!.Value,ct);

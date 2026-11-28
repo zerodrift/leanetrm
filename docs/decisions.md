@@ -432,6 +432,7 @@ through the evidence and acceptance criteria in the plan.
 | P42 | Move operational limits out of code into explicit, versioned configuration | [operational-limits.md](operational-limits.md): each limit keeps a fixed ceiling in code and the database, and its operating value moves to the agent version, installation settings (revisioned, under `ManageAgents` or `ManageAccess`) or hosted configuration, by owner. No value is filled in by code; a missing or out-of-range value is refused. Every operation records the revision or configuration digest it applied. Contract constants, calculation limits and pre-authorization guards stay fixed. Proposed 2026-10-27 after D251; awaiting the owner's review |
 | P43 | Execute D253's booked schedules directly with dynamic inputs under one resolved context | [side-plans.md](side-plans.md): answers D253's row-node question for D258's retained schedules. Rows are retained relationally but are not individual calculation-graph nodes. The owner's 2026-10-29 amendment supersedes compilation per calculation: booking retains the complete executable schedule, and valuation directly reads its price, quantity and discount inputs under one context with explicit per-role cutoffs. Independent authorized source reads run concurrently in bounded batches; source selection and evaluated row states vary with context while the stored instructions do not. Scenarios recompute affected terms and report no per-node amount. No cross-calculation value cache. Accepted for the local implementation trial on 2026-10-28, amended 2026-10-29; direct-execution implementation and qualification remain pending |
 | P44 | Compose typed physical lifecycle and cash objects around trade bindings | Proposed implementation of D303: [ownership, capabilities, lineage, valuation and staged consumers](physical-lifecycle-design.md). Preserve existing crude/swap behavior, prove a selected gas consumer and a distinct power geometry, and extract only matching mechanisms. Proposed ledger/schedule, constraint-assessment and lifecycle types are not current APIs. Qualify native-interval conservation, measured-breach preservation, enforced-plan races and scoped idempotent notifications for the facility consumer; no universal invoice/finality/rounding/title/operating-limit rule or LNG/NGL model is selected. |
+| P45 | Improve page control and application knowledge | Scope narrowed 2026-11-28 to [page feedback and installed-release help](assistant-tools-design.md). D468 implements reporting corrections; live observations, typed action completion receipts, full physical reader composition and application-help retrieval remain proposed. Browser/Python research is deferred to separate work. D284's business approval, D407's configured guidance and O29's browser authority boundary remain in force. The proposal grants no runtime capability or installation enablement. |
 
 ### Local proposal — structured power products
 
@@ -8419,7 +8420,31 @@ before one synchronous exchange has shown a need for it.
 Local verification is listed in the contract. It uses a loopback synthetic
 tracker; no real tracker or hosted installation is qualified by it.
 
-## D468 — PostgreSQL 19 preserves explicit catalog lineage through an admitted copy upgrade
+## D468 — Page reports identify the displayed view and state their observation source
+
+2026-11-28. [Page identity and observation](assistant-workspace.md#page-identity-and-observation-d468)
+corrects the existing assistant reporting contract without changing financial
+policy or business authority. A workspace read echoes selection only when it
+belongs to the requested page; an unobserved destination has no selection.
+Digest results distinguish data projections, control metadata and identity-only
+coverage, and identify the question as their page-state source.
+
+Gas day position, Trades and volumes and Curve definitions receive distinct
+identity-only reports and prompt scopes (migration 0415). Date rules uses its
+existing reader. Physical reports preserve the explicitly selected gas/crude/LNG
+desk; absence on an older report stays unspecified. Failed refreshes clear
+reported selection as they clear the page. Back restores the named Facilities
+section or explicit physical desk and refuses incompatible retained requests
+before changing context.
+
+The question's page report remains immutable. Its native reads still enforce
+current authority and the turn's explicit financial context; an HTML marker or
+browser notification establishes neither data authority nor financial freshness.
+Live action receipts, composed physical page reads and release-bound application
+help remain P45 work. Browser and Python research is deferred. Synthetic
+qualification does not establish installation readiness.
+
+## D469 — PostgreSQL 19 preserves explicit catalog lineage through an admitted copy upgrade
 
 Stock PostgreSQL 19.0 is the selected fresh-installation and CI database. An
 existing 18 installation needs a separately qualified major upgrade: native

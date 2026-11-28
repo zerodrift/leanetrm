@@ -8,7 +8,7 @@ import {lngInstrumentSections,type LngInstrumentFacts} from './lng-trade-view.js
 import {facilityAllocationTrack} from './facility-allocation-track.js';
 import type {FacilityAllocationTrack} from './ticket-types.js';
 import {setupGasOperations} from './gas-operations.js';
-import type {PhysicalShown} from './assistant-pages.js';
+import type {PhysicalShown,PhysicalDesk} from './assistant-pages.js';
 import {setupGasBilling,type GasBillingWorkflow} from './gas-billing.js';
 import {setupGasBills} from './gas-bills.js';
 import {setupCrudeOperations} from './crude-operations.js';
@@ -25,7 +25,7 @@ const commandAllowed=(c:RequestCommand)=>c.path.startsWith('gas/operations/')||[
 
 /** A separate operational workspace. Discovery reads booking facts, never PV;
  * commodity modules own interpretation, preview, persistence and authority. */
-export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;context:()=>Record<string,unknown>;zone:()=>string;permission:(name:string)=>boolean;changed:()=>void;desk?:()=>string}){
+export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;context:()=>Record<string,unknown>;zone:()=>string;permission:(name:string)=>boolean;changed:()=>void;desk?:()=>PhysicalDesk}){
  root.tabIndex=-1;root.dataset.ownControls='true';root.classList.add('physical-operations');
  root.innerHTML=`<div id="${root.id}-prompt" class="side-panel-prompt" role="alertdialog" hidden></div>
  <section class="operations-directory" aria-label="Physical trades"><div class="operations-directory-heading"><div><h2>Physical trades</h2><p>Select a row to open its delivery work. Sort columns or filter the booked facts below.</p></div><button id="physical-operations-refresh" class="secondary" type="button"><span aria-hidden="true">↻</span> Refresh trades</button></div><div id="physical-operations-trades"></div></section>
@@ -100,9 +100,9 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
     else if(p.instrumentType==='physical_lng'){const facts=await o.api<LngInstrumentFacts>('trading/lng',{context,tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision,instrumentType:p.instrumentType});if(!current(epoch,actor))return;sections.push(...lngInstrumentSections(facts,o.zone()),{title:'Operational workflow',rows:[['LNG actuals and reconciliation','TBD']]});}
     if(current(epoch,actor))dispose=renderPhysicalSections(content,sections);
    }
-  }catch(error){if(current(epoch,actor)){clearWidgets();message.textContent=String(error);}}finally{if(current(epoch,actor)){reading=false;sync();}}
+  }catch(error){if(current(epoch,actor)){clearWidgets();message.textContent=String(error);}}finally{if(current(epoch,actor)){reading=false;sync();o.changed();}}
  }
- async function load(target?:PhysicalDeliveryTarget){restore();const previous=selected&&physicalTradeKey(selected),actor=o.identity(),epoch=++generation;clearWidgets();clearGrid(true);positions=[];selected=undefined;clearInstrument();tradeHost.textContent='Loading physical trades…';reading=true;sync();try{
+ async function load(target?:PhysicalDeliveryTarget){restore();const previous=selected&&physicalTradeKey(selected),actor=o.identity(),epoch=++generation;clearWidgets();clearGrid(true);positions=[];selected=undefined;clearInstrument();tradeHost.textContent='Loading physical trades…';reading=true;sync();o.changed();try{
    // A Scheduling desk lists its own trades; the server selects them. Without a desk every physical trade is listed.
    const context=cloneRead(o.context()),desk=o.desk?{desk:o.desk()}:{};let facts=readPositionFacts(await o.api('physical/operations/directory',{context,bookIds:[],portfolioIds:[],offset:0,limit:64,...desk}),64);if(!current(epoch,actor))return;
    while(facts.nextOffset!==null){const offset=facts.nextOffset;facts=appendPositionFacts(facts,await o.api('physical/operations/directory',{context:{...context,...retainedKnowledge(facts.context)},bookIds:[],portfolioIds:[],offset,limit:64,...desk}),64);if(!current(epoch,actor))return;}
@@ -111,7 +111,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
    if(target&&!selected)throw Error('The exact delivery trade and revision are not visible under the selected financial close and knowledge context.');
    if(target)tab=target.tab;
    drawTrades();reading=false;await mount();if(selected)grid?.selectRow(positions.indexOf(selected));
-  }catch(error){if(current(epoch,actor)){positions=[];selected=undefined;filters=undefined;clearGrid();message.textContent=String(error);if(target)throw error;}}finally{if(current(epoch,actor)){reading=false;sync();}}}
+  }catch(error){if(current(epoch,actor)){positions=[];selected=undefined;filters=undefined;clearGrid();message.textContent=String(error);if(target)throw error;}}finally{if(current(epoch,actor)){reading=false;sync();o.changed();}}}
  get('refresh').onclick=()=>void o.act(async()=>{if(await leave())await load();});get('retry').onclick=()=>void o.act(async()=>{if(pending.command)await send(pending.command);});get('status').onclick=()=>void o.act(check);
  // The instrument and tab shown and, on a gas delivery, its selected row and stage (PageState's physical).
  const shown=():PhysicalShown|undefined=>selected&&{tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,
@@ -119,7 +119,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
  return{load:()=>load(),async open(target:PhysicalDeliveryTarget){
   if(!target||!target.tradeId||!target.bindingId||!Number.isSafeInteger(target.revision)||target.revision<1||!['physical_gas','physical_crude'].includes(target.instrumentType)||target.tab!=='delivery')throw Error('Choose an exact supported native delivery target.');
   if(await leave())await load(cloneRead(target));
- },sync,leave,
+ },sync,leave,desk:()=>o.desk?.(),
   // The desk whose deliveries an unconfirmed request belongs to. Its status and retry controls are shown with that desk's trades only.
   pendingDesk:():'gas'|'crude'|null=>{restore();const path=pending.command?.path;if(path===undefined)return null;if(isCrudeOperation(path))return 'crude';if(path.startsWith('gas/'))return 'gas';throw Error('The retained physical request belongs to no desk.');},
   edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};

@@ -170,13 +170,15 @@ def run_checks(url, query, manifest, fake, trap, psql, environment, tracker):
           and pending_calls[1]['system'][0]['text'].startswith(application + '\n\n')
           and next(t['description'] for t in pending_calls[1]['tools'] if t['name'] == 'navigate') == '')
 
-    for page in ('dashboard', 'vol_surfaces'):
+    for page in ('dashboard', 'vol_surfaces', 'facility_outlook', 'facility_trades', 'curve_definitions'):
         admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': page, 'expectedVersion': 0, 'instructions': 'Synthetic identity-only guidance.'})
         identity_turn, identity_results, _ = ask([('read_page_digest', {'mode': 'overview'}), ('read_current_page', {})], page=page)
         check(page + ' admits an empty report and pins guidance without inventing widget values',
               query(f"SELECT page||':'||version FROM assistant.turn_prompt_pins WHERE turn_id='{identity_turn['id']}';") == page + ':1'
               and identity_results[0]['result']['text'].startswith('Page: ' + page + ' |')
               and identity_results[0]['result']['text'].endswith('Selection: {}')
+              and identity_results[0]['result']['pageStateSource'] == 'question'
+              and identity_results[0]['result']['coverage'] == 'identity_and_selection'
               and identity_results[0]['result']['targets'] == [] and identity_results[1]['code'] == 'page_not_supported')
     # Risk names the view it shows (D392): a report naming none is refused before admission, and the page read and digest name it.
     unnamed = owner.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': agent['id'], 'version': 1,
@@ -186,7 +188,21 @@ def run_checks(url, query, manifest, fake, trap, psql, environment, tracker):
     _, risk_results, _ = ask([('read_workspace_page', {'page': 'risk_jobs'}), ('read_page_digest', {'mode': 'overview'})],
                              report={'page': 'risk_jobs', 'selection': {'view': 'var_es'}}, operational=True)
     check('the Risk page read and digest name the view the question was asked from',
-          risk_results[0].get('selection') == {'view': 'var_es'} and '\nView: VaR / ES\n' in risk_results[1]['result']['text'])
+          risk_results[0].get('selection') == {'view': 'var_es'} and '\nView: VaR / ES\n' in risk_results[1]['result']['text']
+          and risk_results[1]['result']['coverage'] == 'data' and risk_results[1]['result']['pageStateSource'] == 'question')
+    _, other_page_results, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'}),
+                                    ('read_workspace_page', {'page': 'risk_jobs'})],
+                                   report={'page': 'risk_jobs', 'selection': {'view': 'var_es'}}, operational=True)
+    check('reading another page never attributes the asking page selection to that destination',
+          other_page_results[0]['page'] == 'blotter_new_swap' and other_page_results[0]['selection'] == {}
+          and other_page_results[0]['pageStateSource'] == 'unobserved'
+          and other_page_results[1]['page'] == 'risk_jobs' and other_page_results[1]['selection'] == {'view': 'var_es'}
+          and other_page_results[1]['pageStateSource'] == 'question')
+    _, physical_results, _ = ask([('read_current_page', {})],
+                                report={'page': 'physical_operations', 'selection': {'desk': 'crude'}}, operational=True)
+    check('physical page reads retain the scheduling desk without inventing a selected trade',
+          physical_results[0]['page'] == 'physical_operations' and physical_results[0]['selection'] == {'desk': 'crude'}
+          and 'selectedView' not in physical_results[0])
     admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': 'crude_setup', 'expectedVersion': 0,
                                       'instructions': 'Synthetic delivery guidance: use native contextual field definitions.'})
     _, setup_results, _ = ask([('read_current_page', {})], page='crude_setup')
@@ -254,6 +270,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment, tracker):
     controls = controls_results[0]['result']
     check('controls digest returns authorized native entry handles without portfolio values or record evidence',
           controls['text'].endswith('Screen controls only. Financial values were not read.')
+          and controls['coverage'] == 'controls' and controls['pageStateSource'] == 'question'
           and 'Positions:' not in controls['text'] and 'Totals:' not in controls['text']
           and [t['label'] for t in controls['targets']] == ['Blotter', 'New trade', 'New futures trade', 'New swap']
           and all('tradeId' not in json.dumps(t) for t in controls['targets'])

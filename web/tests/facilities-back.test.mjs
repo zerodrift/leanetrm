@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import {transform} from 'esbuild';
+import {facilityReportSection} from '../dist/assistant-pages.js';
 
 const source=await readFile(new URL('../src/app.ts',import.meta.url),'utf8');
 const restore=source.match(/async function restorePlace\(origin:Place\)\{[^]*?\n\}/)?.[0];
-async function run(report){
- const calls=[],context={calls,selectContext:async value=>calls.push(['context',value]),setPage:async page=>calls.push(['page',page]),facilities:{load:async(...args)=>calls.push(['ledger',...args]),open:async section=>calls.push(['section',section])},readPages:[],showTarget:async()=>assert.fail('An unsupported operations page cannot become an assistant target.'),showPage:async()=>assert.fail('The explicit operations section must be restored.')};
+async function run(report,{page='facilities',held=false}={}){
+ const calls=[],context={calls,facilityReportSection,deliveriesHeld:()=>held,desks:{want:desk=>calls.push(['desk',desk])},selectContext:async value=>calls.push(['context',value]),setPage:async page=>calls.push(['page',page]),facilities:{load:async(...args)=>calls.push(['ledger',...args]),open:async section=>calls.push(['section',section])},readPages:['physical_operations'],showTarget:async(...args)=>calls.push(['target',...args]),showPage:async()=>assert.fail('The explicit operations section must be restored.')};
  vm.createContext(context);vm.runInContext((await transform(restore,{loader:'ts',target:'es2022'})).code,context);
- await context.restorePlace({page:'facilities',report,context:{mode:'current',frameId:null,businessDate:'2032-03-14'}});
+ await context.restorePlace({page,report,context:{mode:'current',frameId:null,businessDate:'2032-03-14'}});
  return JSON.parse(JSON.stringify(calls));
 }
 
@@ -24,10 +25,20 @@ test('Back restores Route plans under their operating date without selecting cap
 });
 
 test('Back retains each explicit facility operations section and the exact quantity ledger selection',async()=>{
- for(const [page,section]of [['facility_definitions','definitions'],['facility_activity','activity'],['delivery_workbench_gas','gas-delivery'],['delivery_workbench_crude','crude-delivery']])assert.deepEqual((await run({page,selection:{}})).at(-1),['section',section]);
+ for(const [page,section]of [['facility_outlook','outlook'],['facility_trades','trades'],['facility_definitions','definitions'],['facility_activity','activity'],['delivery_workbench_gas','gas-delivery'],['delivery_workbench_crude','crude-delivery']])assert.deepEqual((await run({page,selection:{}})).at(-1),['section',section]);
  assert.deepEqual((await run({page:'facility_quantities',selection:{ledgerId:'synthetic-original-ledger'}})).at(-1),['ledger','synthetic-original-ledger',false]);
 });
 
 test('Back refuses an unknown operating report instead of selecting a quantity or capacity source',async()=>{
  await assert.rejects(run({page:'unsupported_synthetic_operations',selection:{}}),/not supported/);
+});
+
+test('Back restores the reported physical desk and refuses a different desk with a retained request',async()=>{
+ for(const desk of ['gas','crude','lng']){
+  const report={page:'physical_operations',selection:{desk}},calls=await run(report,{page:'physical-operations'});
+  assert.deepEqual(calls.slice(-2),[['desk',desk],['target','physical_operations',{desk}]]);
+  await assert.rejects(run(report,{page:'physical-operations',held:true}),/retained physical request/);
+ }
+ const legacy=await run({page:'physical_operations',selection:{}},{page:'physical-operations'});
+ assert.equal(legacy.some(call=>call[0]==='desk'),false,'old reports never infer a desk');
 });

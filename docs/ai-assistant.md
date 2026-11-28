@@ -1,5 +1,11 @@
 # Page assistant, phase 1: local-preview core
 
+Current reporting corrections and the audited per-view coverage are in
+[page identity and observation](assistant-workspace.md#page-identity-and-observation-d468)
+(D468, migration 0415). HTML presentation markers do not supply page data; a
+question retains a structured page report, and native readers supply business
+facts under its explicit context.
+
 Current extension: [workspace operations and page guidance](assistant-workspace.md)
 (D284/D312/D319/D325/D327/D335/D338–D340, runtime `turns_v20`). This requires
 workspace migrations 0162–0164, settings migrations 0181–0183,

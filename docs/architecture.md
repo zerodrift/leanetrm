@@ -1,11 +1,18 @@
 # Architecture and domain contracts
 
-D468 qualifies an explicit [PostgreSQL 18 to 19 transition](postgresql-upgrade.md).
+D469 qualifies an explicit [PostgreSQL 18 to 19 transition](postgresql-upgrade.md).
 Existing catalogs retain their source lineage and immutable owner coordinates;
 a private continuity receipt binds that lineage to one verified successor
 physical database. Exact full-transaction commit times are retained before the
 native metadata is lost. New catalogs use the successor's physical identity.
 Current authority, publication certification and historical cutoffs are unchanged.
+
+D468 corrects [assistant page identity and observation](assistant-workspace.md#page-identity-and-observation-d468):
+reports name the displayed subview and physical desk, failed refreshes invalidate
+selection, and tool results distinguish question-time metadata from an unobserved
+destination. Browser observations never replace native authorization or the
+question's pinned financial context. Live action receipts and release-bound help
+remain proposed work.
 
 D467 adds [issue reports](issue-reports.md), the first operation whose effect is
 in an external tracker. The request is retained before anything is sent,
@@ -2781,6 +2788,11 @@ tool evidence as appropriate, not secrets or private model reasoning. Define
 retention and redaction policies for prompts, tool payloads and provider logs.
 
 ## 10. AI and external-agent interfaces
+
+The [page-assistance proposal](assistant-tools-design.md) (P45) applies these
+boundaries to observed actions in the attached tab and application help. Browser
+research and Python are deferred. D468 records the implemented reporting
+corrections; the larger observation/help mechanisms remain proposed work.
 
 Each business operation defines a versioned identifier, description, input/output
 schema, required capability, scope, temporal context, validation behavior,

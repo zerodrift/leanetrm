@@ -17,6 +17,7 @@ test('independent delivery and facility views retain their display-only report i
   const report=pageReport({page:'facilities',facilitySection,businessDate:'2032-03-14',facilityLedger:'old-ledger'});
   assert.deepEqual(report,{page,selection:{}});
   assert.equal(lookingAt(report,{mode:'current',frameId:null,frameLabel:null},{curve:String,table:String}).supported,false);
+  assert.match(lookingAt(report,{mode:'current',frameId:null,frameLabel:null},{curve:String,table:String}).shows,/does not read this page/);
  }
 });
 
@@ -399,6 +400,28 @@ test('facility questions retain the selected operating date and ledger without b
  assert.deepEqual(askKnowledge({mode:'current',frameId:null,frameLabel:null}),{mode:'current',contextId:null,frameId:null});
  assert.equal(webPage('gas_setup'),'gas-setup');
  assert.equal(webPage('crude_setup'),'crude-setup');
+});
+
+test('facility subviews and curve definitions never impersonate a different data page',()=>{
+ for(const [facilitySection,page] of [['outlook','facility_outlook'],['trades','facility_trades']]){
+  const report=pageReport({page:'facilities',facilitySection,businessDate:'2026-11-05',facilityLedger:trade});
+  assert.deepEqual(report,{page,selection:{}});
+  assert.match(lookingAt(report,{mode:'current',frameId:null,frameLabel:null},{curve:String,table:String}).shows,/does not read this page/);
+ }
+ assert.deepEqual(pageReport({page:'curve-definitions'}),{page:'curve_definitions',selection:{}});
+});
+
+test('Date rules uses its own reader while Date schedules reads the schedule library',()=>{
+ assert.deepEqual(pageReport({page:'schedules',scheduleView:'contracts'}),{page:'contract_definitions',selection:{view:'contract_definitions',curve:null}});
+ assert.deepEqual(pageReport({page:'schedules',scheduleView:'exchange'}),{page:'schedules',selection:{view:'library'}});
+});
+
+test('physical reports retain the scheduling desk with and without a selected instrument',()=>{
+ const physical={tradeId:trade,bindingId:'b1000000-0000-4000-8000-000000000001',revision:2,instrumentType:'physical_gas',tab:'overview',day:null,obligationId:null,stage:null};
+ for(const desk of ['gas','crude','lng'])assert.deepEqual(pageReport({page:'physical-operations',desk}),{page:'physical_operations',selection:{desk}});
+ const report=pageReport({page:'physical-operations',desk:'gas',physical});
+ assert.deepEqual(report,{page:'physical_operations',selection:{desk:'gas',...physical}});
+ assert.match(lookingAt(report,{mode:'current',frameId:frame,frameLabel:'Synthetic close'},{curve:String,table:String}).shows,/Gas desk/);
 });
 
 test('physical operations reports the selected instrument, gas day, delivery side and stage, and nothing before an instrument is chosen',()=>{

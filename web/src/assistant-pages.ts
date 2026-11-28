@@ -6,6 +6,8 @@ import {tradingInstrumentTypes,type TradingInstrumentType} from './trading-instr
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 import {physicalTabs,gasStages} from './physical-operations-grid.js';
+import type {FacilitySection} from './facilities-views.js';
+import type {ScheduleView} from './schedule-workspace.js';
 import {riskReportViews,riskViewNames,riskViews,type RiskView} from './risk-views.js';
 import type {NewProduct} from './new-trade.js';
 
@@ -30,13 +32,14 @@ export type WorkspaceSelection={operation:string;inputJson:string};
 // The physical instrument and tab Physical operations shows and, on a selected gas delivery row, its day, delivery side and stage.
 export type PhysicalShown={tradeId:string;bindingId:string;revision:number;instrumentType:'physical_gas'|'physical_crude'|'physical_lng';tab:string;
   day:string|null;obligationId:string|null;stage:number|null};
+export type PhysicalDesk='gas'|'crude'|'lng';
 export type PageState=(
-  {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
+  {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules';scheduleView?:ScheduleView}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'physical-operations';physical?:PhysicalShown}|{page:'lifecycle'}|{page:'risk';view:RiskView}
-  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'curve-marks'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:'outlook'|'trades'|'quantities'|'definitions'|'activity'|'transport'|'route'|'gas-delivery'|'crude-delivery'};
+  |{page:'physical-operations';physical?:PhysicalShown;desk?:PhysicalDesk}|{page:'lifecycle'}|{page:'risk';view:RiskView}
+  |{page:'rec-inventory'|'physical-power'|'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'curve-definitions'|'curve-marks'|'vol-surfaces'|'options'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null;facilitySection?:FacilitySection};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
@@ -48,6 +51,8 @@ const unsupported:Record<string,string>={'rec-inventory':'rec_inventory','physic
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];
 const noBlotter={mode:null,portfolioIds:null,groupBy:null,measures:null};
+const facilityPages:Record<Exclude<FacilitySection,'quantities'>,string>={outlook:'facility_outlook',trades:'facility_trades',definitions:'facility_definitions',activity:'facility_activity',transport:'transport_capacity',route:'transport_route_plans','gas-delivery':'delivery_workbench_gas','crude-delivery':'delivery_workbench_crude'};
+export const facilityReportSection=(page:string)=>(Object.keys(facilityPages) as (keyof typeof facilityPages)[]).find(section=>facilityPages[section]===page);
 
 // The page a trade being entered is reported as: one id per product, and one while none is chosen. The assistant reads none of them.
 const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotter_new_future',swaps:'blotter_new_swap',ppa:'blotter_new_ppa',gas:'blotter_new_gas','gas-locations':'blotter_new_gas',transport:'blotter_new_transport','park-loan':'blotter_new_park_loan',crude:'blotter_new_crude',lng:'blotter_new_lng',options:'blotter_new_option',toll:'blotter_new_heat_rate_call',storage:'blotter_new_gas_storage'} as const;
@@ -58,9 +63,10 @@ const entryPages={rec:'blotter_new_rec',none:'blotter_new_trade',futures:'blotte
 export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'lifecycle':return {page:'lifecycle',selection:{}};
-    case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
-    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'&&state.facilitySection!=='trades'&&state.facilitySection!=='outlook'?{page:state.facilitySection==='gas-delivery'?'delivery_workbench_gas':state.facilitySection==='crude-delivery'?'delivery_workbench_crude':state.facilitySection==='route'?'transport_route_plans':state.facilitySection==='transport'?'transport_capacity':state.facilitySection==='definitions'?'facility_definitions':'facility_activity',selection:{}}:
+    case 'physical-operations':return {page:'physical_operations',selection:{...(state.desk?{desk:state.desk}:{}),...state.physical}};
+    case 'facilities':return state.facilitySection&&state.facilitySection!=='quantities'?{page:facilityPages[state.facilitySection],selection:{}}:
       {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
+    case 'curve-definitions':return {page:'curve_definitions',selection:{}};
     // Risk names the view it shows, and only Reports the retained report open there (D392).
     case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
@@ -69,7 +75,7 @@ export function pageReport(state:PageState):PageReport{
     case 'configuration':throw inconsistent();
     // Curve builder names the saved curve it has open, if any, and whether it holds unsaved edits, which the assistant does not save over (D260).
     case 'custom-curves':return {page:'custom_curves',selection:{curve:state.curve,unsaved:state.unsaved}};
-    case 'schedules':return {page:'schedules',selection:{view:'library'}};
+    case 'schedules':return state.scheduleView==='contracts'?{page:'contract_definitions',selection:{view:'contract_definitions',curve:null}}:{page:'schedules',selection:{view:'library'}};
     case 'reference':return {page:'reference_data',selection:{table:state.table,search:state.search}};
     case 'parties':return {page:'parties',selection:{kind:state.kind}};
     // An inspected PPA is the Blotter's trade view of it; a listed book is its PPA trades. Before either there is no
@@ -107,7 +113,8 @@ export function askKnowledge(context:PageContext){
 const pageNames:Record<string,string>={lifecycle:'Lifecycle',physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',facility_definitions:'Facility definitions',facility_activity:'Physical facility activity',transport_capacity:'Transport capacity',transport_route_plans:'Transport route plans',delivery_workbench_gas:'Gas delivery workbench',delivery_workbench_crude:'Crude delivery workbench',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_operating_right:'Blotter',blotter_rec_forward:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_rec:'New trade',blotter_new_trade:'New trade',blotter_new_future:'New trade',blotter_new_swap:'New trade',blotter_new_ppa:'New trade',blotter_new_gas:'New trade',blotter_new_transport:'New trade',blotter_new_park_loan:'New trade',blotter_new_option:'New trade',blotter_new_crude:'New trade',blotter_new_lng:'New trade',blotter_new_heat_rate_call:'New trade',blotter_new_gas_storage:'New trade',delivery_prices:'Delivery prices',
   custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs',users_access:'Users & access',
-  rec_inventory:'REC inventory',physical_power:'Operating facilities',risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces',options:'Options'};
+  rec_inventory:'REC inventory',physical_power:'Operating facilities',risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces',options:'Options',
+  facility_outlook:'Gas day position',facility_trades:'Trades and volumes',curve_definitions:'Curve definitions'};
 // The label catalog is checked against server admission by the owned browser fixture.
 export const reportedPages:readonly string[]=Object.freeze(Object.keys(pageNames));
 const dimensions:Record<string,string>={portfolio:'portfolio',book:'book',market:'market',contract:'contract',instrumentType:'instrument type',commodity:'commodity'};
@@ -157,14 +164,15 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_park_loan':return 'A new Park and loan trade is being entered. The assistant does not read a trade being entered.';
     case 'lifecycle':return 'Lifecycle actions and saved policies at the header context. Unsaved inputs are not sent.';
     case 'physical_operations':{
-      if(!s.tradeId)return 'Physical instrument operations under the header context. Unsaved edits are not sent.';
+      const desk=s.desk?`${({gas:'Gas',crude:'Crude',lng:'LNG'} as Record<string,string>)[String(s.desk)]} desk · `:'';
+      if(!s.tradeId)return desk+'Physical instrument operations under the header context. Unsaved edits are not sent.';
       const tab=physicalTabs(String(s.instrumentType)).find(([id])=>id===s.tab)?.[1];if(!tab)throw inconsistent();
-      return `Selected physical instrument, revision ${s.revision} · ${tab}${s.day?` · Gas day ${s.day} · ${gasStages[Number(s.stage)]} stage`:''}. Unsaved edits are not sent.`;
+      return desk+`Selected physical instrument, revision ${s.revision} · ${tab}${s.day?` · Gas day ${s.day} · ${gasStages[Number(s.stage)]} stage`:''}. Unsaved edits are not sent.`;
     }
     case 'gas_setup':case 'crude_setup':return 'Published delivery setup and field definitions in the header context. Unsaved edits are not sent.';
     case 'facility_quantities':return 'Facility quantities and allocations at the header operating date and knowledge cutoff. Unsaved edits are not sent.';
     case 'risk_jobs':return (s.operation?'The retained report open here · ':'')+'Authorized page operations, reads and previews. Changes require your authorization.';
-    default:return ['dashboard','physical_gas','physical_crude','vol_surfaces','options'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';
+    default:return readPages.includes(report.page)?'Authorized page operations, reads and previews. Changes require your authorization.':'The assistant does not read this page.';
   }
 }
 function contextLine(context:PageContext){

@@ -9,7 +9,7 @@ grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
 Existing PostgreSQL 18 installations use the explicit
-[19 upgrade contract](../docs/postgresql-upgrade.md), including migration 0415,
+[19 upgrade contract](../docs/postgresql-upgrade.md), including migration 0416,
 exact commit evidence and physical continuity admission. Changing the server
 image alone does not upgrade an installed database.
 
