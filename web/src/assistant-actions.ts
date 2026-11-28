@@ -1,9 +1,16 @@
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Reference={turnId:string;step:number};
-type Review={operation:string;page:string;body:unknown;parameters:Record<string,string>;context:{mode:string;cutoff:string|null;frameId:string|null};status:string};
+type Review={operation:string;page:string;publishesTo?:string|null;body:unknown;parameters:Record<string,string>;context:{mode:string;cutoff:string|null;frameId:string|null};status:string};
 
 // Only explicit button activation sends an authorization. Nothing in a model response, stream event, automatic
 // navigation, rendered request or earlier chat text can call it. The server re-reads the immutable proposal.
+/** What authorizing a drafted issue report does that no other reviewed command does: it posts the text publicly. */
+export function publicationNotice(review:{publishesTo?:string|null}):string|null{
+  if(review.publishesTo===undefined)return null;
+  return review.publishesTo===null?'This installation has no issue tracker connection, so authorizing this report sends nothing.'
+    :`Authorizing posts this report to ${review.publishesTo}, where anyone can read it. Check that it leaves out trades, counterparties, prices and account details.`;
+}
+
 export function setupAssistantActions(options:{api:Api;identity:()=>string;changed:()=>Promise<void>}){
   let active:HTMLDialogElement|undefined;
   function close(){active?.close();active?.remove();active=undefined;}
@@ -42,7 +49,8 @@ export function setupAssistantActions(options:{api:Api;identity:()=>string;chang
         authorize.textContent='Retry same authorized change';authorize.disabled=false;
       }finally{sending=false;cancel.disabled=false;}
     };
-    dialog.append(title,summary,frame,payload,label,authorize,cancel,status);document.body.append(dialog);dialog.showModal();
+    const notice=publicationNotice(value),publication=document.createElement('p');publication.textContent=notice??'';publication.hidden=notice===null;
+    dialog.append(title,summary,frame,publication,payload,label,authorize,cancel,status);document.body.append(dialog);dialog.showModal();
   }
   return {review,reset:close};
 }

@@ -37,7 +37,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
  for(const name of ['recInventory','structuredPower','closeConventionDefaults','lifecycle','physicalOperations','deliverySetup','referenceConsole','curveWorkspace','customCurves',
   'volSurfaces','optionChains','riskJobs','riskViewsNav','facilities','facilityViewsNav','jobs','dashboard','deliveryPrices','intervalSeries','intervalCurves','ppa','gas','crude',
   'lng','gasSetup','crudeSetup','referenceEditor','parties','unitConverter','futures','power','touProducts','schedules','dateEditor','priceSetup',
-  'curveDefinitions','administration','aiSettings','agentGrants','referenceNavigation','marketCalendar','accessPolicy','assistantPolicy'])
+  'curveDefinitions','administration','aiSettings','agentGrants','referenceNavigation','marketCalendar','accessPolicy','assistantPolicy','issueReportPolicy','issueReports'])
   context[name]={reset:noop,invalidate:noop,clear:noop};
  for(const name of ['recInventory','structuredPower','optionChains'])context[name]={reset:()=>productResets.push(name)};
  let stream,submitted,accessReads=0,denyAccess;

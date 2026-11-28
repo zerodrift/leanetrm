@@ -124,6 +124,7 @@ before metadata work and between operations; the configured read bound is unchan
 | Interval/delivery data | Source/series catalogs, selected windows, corrections and supported curve/quantity previews |
 | Jobs/infrastructure | Existing directory, job creation/update/control and typed node operations |
 | Administration/AI | Account, provider/model/agent configuration, usage and page guidance |
+| [Issue reports](issue-reports.md#the-assistant) | The person's own reports, and a drafted report for their authorization (D467) |
 
 The browser reports selected retained risk jobs and displayed delivery/interval
 windows when available. Their pointers are re-read through the backend; browser

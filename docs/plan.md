@@ -1,5 +1,13 @@
 # Delivery plan and acceptance criteria
 
+D467 adds [issue reports](issue-reports.md): a signed-in person sends a reviewed
+report to the installation's one configured tracker and receives the issue's
+number and link. Policy revisions, retained requests, single dispatch admission
+and unconfirmed outcomes are implemented with local checks against a synthetic
+tracker. The assistant drafts a report for the person's authorization, and the
+browser has the policy form and a Report an issue dialog. `automatic` submission
+and hosted wiring remain work; `automatic` needs its own decision.
+
 D465 implements [monthly gas bills](gas-monthly-bills.md) for one trade: a bill
 over a complete delivery month's daily determinations and linked adjustment
 notes for later ones, gross, with separate pay and receive totals and no new

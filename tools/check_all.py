@@ -99,10 +99,12 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('managed automation contracts',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--automation'], suite='managed')
     check('managed live context contracts',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--live-calculation'], suite='managed')
     check('managed private reference intake',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--reference-intake'], suite='managed')
+    check('managed issue tracker adapter',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--issue-tracker'], suite='managed')
     check('managed preview data',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--preview-data'], suite='managed')
     check('managed side observation compatibility',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--side-observation-compatibility'], suite='managed')
     check('owned automation database',[sys.executable,'tools/check_automation.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)], suite='database')
     check('owned operating settings database',[sys.executable,'tools/check_operating_settings.py','--pg-bin',str(pg_bin)], suite='database')
+    check('owned issue report database',[sys.executable,'tools/check_issue_reports.py','--pg-bin',str(pg_bin)], suite='database')
     check('owned operating facility versions',[sys.executable,'tools/check_operating_facilities.py','--pg-bin',str(pg_bin)],suite='physical')
     for helper,label in (
         ('check_operating_schedule_storage','operating schedule grammar and predecessor contracts'),
@@ -282,6 +284,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('isolated page-assistant administration and browser', [*preview, '--assistant-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('physical assistant context and native approvals', [*preview, '--physical-assistant-check', '--browser-check', '--browser', str(browser)], suite='assistant')
     preview_check('assistant page operations, approvals and guidance', [*preview, '--assistant-workspace-check', '--browser-check', '--browser', str(browser)], suite='assistant')
+    preview_check('issue reports against a synthetic tracker', [*preview, '--issue-report-check'], suite='assistant')
     preview_check('isolated units and deal precision browser', [*preview, '--unit-check', '--browser-check', '--browser', str(browser)])
     preview_check('independent swap sides, spreads and reviewed par pricing', [*preview, '--draft-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('explicit Side calendars, native booking and retained replay',[*preview,'--side-calendar-check'],suite='trading')
