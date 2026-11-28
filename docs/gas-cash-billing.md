@@ -11,7 +11,7 @@ the held basis, applies share and quote multiplier once, then rounds once.
 Neither profile admits indexed, receipt/fuel, monthly cumulative or multisource
 billing. Valuation accrual is not a final bill.
 
-## Indexed profile (D461)
+## Indexed profile (D463)
 
 `gas_final_daily_indexed_cash_v1` bills one completed gas day of a delivery
 payment priced on a named daily index, a named monthly index or point

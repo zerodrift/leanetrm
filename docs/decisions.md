@@ -8099,7 +8099,7 @@ operating rights. New roles for REC and gas inventory: no person would hold them
 at installation, and the six-role limit makes them hard to add, as D444 found
 for a new setup role.
 
-## D461 — Final daily billing of index-priced gas payments
+## D463 — Final daily billing of index-priced gas payments
 
 Policies selected by the owner on 2026-11-27, with point publications added on
 2026-11-28: named daily and named monthly indexes and point publications; one
@@ -8158,4 +8158,4 @@ A monthly bill or invoice, automatic indexed billing, right-dependent payments,
 a list of billed days whose fixing was later corrected and reconciliation with
 accrued value remain separate consumers. See
 [the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
-[the contract](gas-cash-billing.md#indexed-profile-d461).
+[the contract](gas-cash-billing.md#indexed-profile-d463).

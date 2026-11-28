@@ -27,7 +27,7 @@ Recent schema groups and their contracts:
   published fixing observation that priced it and is unique for each quantity
   source and fixing. The writer selects the fixing head under the operation's
   knowledge, requires it to be the reviewed observation and checks the exact
-  amount. A corrected fixing takes its own correction cause (D461).
+  amount. A corrected fixing takes its own correction cause (D463).
 - [0411](migrations/0411_inventory_role_grants.sql) installs the REC inventory
   capabilities that 0344 created and granted to no role, and the owned gas
   capabilities that 0265 created: the agent-only Gas lifecycle operator role held
