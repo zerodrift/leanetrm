@@ -13,6 +13,8 @@ export async function run({command,evaluate,wait,click,persona,check,idle,url}){
  await wait(idle);
  await check('position details can use the displayed read reference',"document.querySelector('#error').hidden");
  const selected=await evaluate("document.querySelector('#futures-page').dataset.pricingContext");
- await command('Page.reload');await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
+ // Wait for the reloaded document itself: the previous one still answers at first, and the new one starts empty.
+ const origin=await evaluate('performance.timeOrigin');
+ await command('Page.reload');await wait(`performance.timeOrigin!==${origin}&&document.querySelector('#futures-page')?.dataset.pricingState==='complete'&&`+idle);
  await check('document reload opens a fresh valid working read',`document.querySelector('#error').hidden&&document.querySelector('#futures-page').dataset.pricingContext!==${JSON.stringify(selected)}`);
 }

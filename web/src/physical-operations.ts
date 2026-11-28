@@ -10,6 +10,7 @@ import type {FacilityAllocationTrack} from './ticket-types.js';
 import {setupGasOperations} from './gas-operations.js';
 import type {PhysicalShown} from './assistant-pages.js';
 import {setupGasBilling,type GasBillingWorkflow} from './gas-billing.js';
+import {setupGasBills} from './gas-bills.js';
 import {setupCrudeOperations} from './crude-operations.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {isCrudeOperation,knownTradeRejection,releasesRetained,retainedText,retryAllowed,tradeStatusPath,requirePhysicalReceipt} from './trade-requests.js';
@@ -20,7 +21,7 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Tab='overview'|'delivery'|'cash';
 export type PhysicalDeliveryTarget={tradeId:string;bindingId:string;revision:number;instrumentType:'physical_gas'|'physical_crude';tab:'delivery'};
 const tradeLayout=():GridLayout=>({...emptyGridLayout(),sort:[{key:'trade',direction:'asc' as const}]});
-const commandAllowed=(c:RequestCommand)=>c.path.startsWith('gas/operations/')||['gas/quantities/record','gas/billing/determine'].includes(c.path)||isCrudeOperation(c.path);
+const commandAllowed=(c:RequestCommand)=>c.path.startsWith('gas/operations/')||['gas/quantities/record','gas/billing/determine','gas/bills/issue'].includes(c.path)||isCrudeOperation(c.path);
 
 /** A separate operational workspace. Discovery reads booking facts, never PV;
  * commodity modules own interpretation, preview, persistence and authority. */
@@ -37,7 +38,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
  let grid:GridHandle|undefined,layout=tradeLayout(),filters:{query:string;columns:(string|null)[]}|undefined;
  let tabStrip:ReturnType<typeof setupTabs>|undefined;
  let positions:PositionFact[]=[],selected:PositionFact|undefined,tab:Tab='overview',generation=0,reading=false,identity='',asking:AbortController|undefined;
- let gas:ReturnType<typeof setupGasOperations>|undefined,billing:ReturnType<typeof setupGasBilling>|undefined,dispose:(()=>void)|undefined;
+ let gas:ReturnType<typeof setupGasOperations>|undefined,billing:ReturnType<typeof setupGasBilling>|undefined,bills:ReturnType<typeof setupGasBills>|undefined,dispose:(()=>void)|undefined;
  const pending=new PendingCommand(knownTradeRejection),transports=new Map<string,ReturnType<typeof actorTransport<RequestCommand>>>();
  function transport(){const actor=o.identity();let t=transports.get(actor);if(!t)transports.set(actor,t=actorTransport<RequestCommand>(()=>'physical-operations-request:'+actor,()=>sessionStorage));return t;}
  function restore(){if(identity===o.identity())return;pending.clear();identity=o.identity();layout=tradeLayout();filters=undefined;const saved=restoreTradeRequest(transport().read());if(saved&&commandAllowed(saved))pending.command={...saved,uncertain:true};}
@@ -46,12 +47,12 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
  const busy=()=>reading||o.busy();
  const gasContext=()=>({...o.context(),convention:'physical_gas_fixed_quantity_v4'});
  const writableContext=()=>{try{return o.context().knowledgeMode==='current';}catch{return false;}};
- const edited=()=>!!gas?.unsaved()||!!billing?.unsaved()||crude.unsaved();
+ const edited=()=>!!gas?.unsaved()||!!billing?.unsaved()||!!bills?.unsaved()||crude.unsaved();
  const workflow:GasBillingWorkflow={busy,pending:()=>pending.command,changed:o.changed,queue};
  const crude=setupCrudeOperations({api:o.api,act:o.act,busy,context:o.context,actor:o.identity,zone:o.zone,onDenied:()=>{clearWidgets();content.replaceChildren();},queue,pending:()=>pending.command,host:()=>content,unsavedChanged:o.changed});
- function clearWidgets(){deliveryGrid?.destroy();deliveryGrid=undefined;dispose?.();dispose=undefined;gas?.destroy();gas=undefined;billing?.destroy();billing=undefined;crude.reset();content.replaceChildren();}
+ function clearWidgets(){deliveryGrid?.destroy();deliveryGrid=undefined;dispose?.();dispose=undefined;gas?.destroy();gas=undefined;billing?.destroy();billing=undefined;bills?.destroy();bills=undefined;crude.reset();content.replaceChildren();}
  function clearInstrument(){get('instrument').hidden=true;for(const name of ['family','reference','market','book','period'])get(name).textContent='';clearTabs(get('tabs'),content);get('tabs').hidden=true;}
- function sync(){restore();gas?.sync();billing?.sync();crude.sync();const blocked=busy()||!!pending.command;tradeHost.inert=blocked;get<HTMLButtonElement>('refresh').disabled=blocked;
+ function sync(){restore();gas?.sync();billing?.sync();bills?.sync();crude.sync();const blocked=busy()||!!pending.command;tradeHost.inert=blocked;get<HTMLButtonElement>('refresh').disabled=blocked;
   get('pending').hidden=!pending.command;if(pending.command)get('pending-text').textContent=retainedText(pending.command);
   const allowed=pending.command&&retryAllowed(pending.command.path,{canAmendTrades:o.permission('AmendTrade'),canConfigureGasServices:o.permission('ReadGasOperations')&&o.permission('ConfigureGasServices'),canRecordGasOperations:o.permission('ReadGasOperations')&&o.permission('RecordGasOperations')&&o.permission('AmendTrade')});
   get<HTMLButtonElement>('retry').disabled=busy()||!pending.command||!allowed||!writableContext();get<HTMLButtonElement>('status').disabled=busy()||!pending.command;
@@ -59,7 +60,9 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
  }
  async function leave(){if(!edited())return true;if(asking)return false;const controller=asking=new AbortController();try{const go=await askInPanel(root,{text:'This physical operation has unsaved edits. Leaving discards those edits; an unconfirmed request remains retained.',keep:'Keep editing',go:'Discard changes'})(controller.signal);if(go)clearWidgets();return go;}finally{if(asking===controller)asking=undefined;}}
  async function queue(command:RequestCommand){restore();if(pending.command)throw Error('Reconcile the retained physical request first.');if(!commandAllowed(command))throw Error('Choose a supported physical operation.');pending.command=cloneRead(command);store();sync();await send(pending.command);}
- async function accepted(command:RequestCommand){if(pending.command!==command)return;pending.clear();store();message.textContent='Operation recorded. The selected view is refreshed under the header context.';await mount();}
+ // The two cash panels are read again in place, so the inputs of the one that did not send the request are kept.
+ async function accepted(command:RequestCommand){if(pending.command!==command)return;pending.clear();store();message.textContent='Operation recorded. The selected view is refreshed under the header context.';
+  if(billing&&bills){sync();await Promise.all([billing.refresh(command.path==='gas/billing/determine'),bills.refresh(command.path==='gas/bills/issue')]);sync();}else await mount();}
  async function send(command:RequestCommand){const actor=o.identity(),epoch=generation,uncertain=pending.sending();store();sync();try{const outcome=await o.api<{operationId?:string}>(command.path,{...command.body,operationId:command.operationId});requirePhysicalReceipt(command,outcome);if(current(epoch,actor))await accepted(command);}catch(error){if(current(epoch,actor)){if(releasesRetained(command.path,(error as {code?:string}).code,uncertain)){pending.clear();store();}message.textContent=String(error);}throw error;}finally{sync();}}
  async function check(){const command=pending.command;if(!command)return;const actor=o.identity(),epoch=generation;const outcome=await o.api<{found?:boolean}>(tradeStatusPath(command.path),{operationId:command.operationId});if(!current(epoch,actor)||pending.command!==command)return;if(outcome.found===false){message.textContent='No committed outcome is available. Retry the retained original request.';return;}requirePhysicalReceipt(command,outcome);await accepted(command);}
  function clearGrid(keep=false){if(keep&&grid){filters=grid.state();if(grid.ready())layout=grid.layout();}grid?.destroy();grid=undefined;tradeHost.replaceChildren();}
@@ -85,7 +88,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
   tabs();get('tabs').hidden=false;get('instrument').hidden=false;get('family').textContent=physicalProduct(selected.instrumentType).label;get('reference').textContent=selected.tradeReference;get('market').textContent=selected.marketLabel??'';get('book').textContent=selected.book;get('period').textContent=selected.deliveryFrom&&selected.deliveryTo?`${selected.deliveryFrom} → ${selected.deliveryTo} · exclusive`:'Not available';
   const p=selected,epoch=++generation,actor=o.identity();message.textContent='';reading=true;sync();
   try{const context=cloneRead(o.context());if(tab==='delivery'&&p.instrumentType==='physical_gas'){gas=setupGasOperations(content,{api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow});const allocations=await o.api<{facilityAllocations:FacilityAllocationTrack[]}>('trading/gas',{context,tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision,instrumentType:p.instrumentType});if(current(epoch,actor)&&allocations.facilityAllocations?.length)gas.afterFlowHost.append(facilityAllocationTrack(allocations.facilityAllocations));}
-   else if(tab==='cash'&&p.instrumentType==='physical_gas')billing=setupGasBilling(content,{api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow});
+   else if(tab==='cash'&&p.instrumentType==='physical_gas'){const widget={api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow};billing=setupGasBilling(content,widget);bills=setupGasBills(content,widget);}
    else if(tab==='delivery'&&(p.instrumentType==='physical_crude'||p.instrumentType==='physical_lng')){
     const path=p.instrumentType==='physical_crude'?'trading/crude':'trading/lng';
     const facts=await o.api<{delivery:PhysicalDeliveryView}>(path,{context,tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision,instrumentType:p.instrumentType});

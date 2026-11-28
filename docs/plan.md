@@ -1,5 +1,23 @@
 # Delivery plan and acceptance criteria
 
+D464 implements [monthly gas bills](gas-monthly-bills.md) for one trade: a bill
+over a complete delivery month's daily determinations and linked adjustment
+notes for later ones, gross, with separate pay and receive totals and no new
+rounding. Billing & corrections reviews and issues them. Counterparty-level
+bills and netting need a typed election on the agreement; a rendered or
+exported document, payment matching and accounting remain separate.
+
+D463 implements [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d463),
+on a named daily or monthly index or on point publications:
+one reviewed determination for each payment and gas day from the final accepted
+quantity and the final published fixing plus the booked spread, with the fixing
+retained by foreign key and a corrected fixing billed under its own cause. The
+fixing is selected by knowledge cutoff, without a market close. Qualification is
+recorded in [verification](verification.md#indexed-gas-billing-d463).
+A monthly bill or invoice, automatic indexed billing, right-dependent payments,
+a list of billed days whose fixing was later corrected and reconciliation with
+accrued value remain separate.
+
 D462 adds a desk-specific **Planned workflows** panel and the
 [Scheduling contribution roadmap](scheduling-roadmap.md). Crude parcels,
 pipeline movements, tank inventory across trades, shipping and time charters

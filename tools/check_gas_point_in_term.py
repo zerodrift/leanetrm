@@ -26,4 +26,6 @@ def run_checks(url,query,manifest,admin_load):
  facts=json.loads(query(f"SELECT jsonb_build_object('rows',count(*),'days',count(DISTINCT r.payment_ordinal),'fixings',count(DISTINCT b.series_id),'from',min(b.fixing_from),'to',max(b.fixing_to)) FROM trading.side_schedule_bindings b JOIN trading.side_schedule_rows r ON(r.catalog_id,r.schedule_id,r.ordinal)=(b.catalog_id,b.schedule_id,b.row_ordinal) JOIN trading.side_schedules h ON(h.catalog_id,h.id)=(r.catalog_id,r.schedule_id) JOIN trading.sides s ON(s.catalog_id,s.id)=(h.catalog_id,h.side_id) JOIN trading.instrument_side_schedules m ON(m.catalog_id,m.schedule_id)=(h.catalog_id,h.id) WHERE m.instrument_id='{booked['instrumentId']}' AND s.family='floating' AND b.kind='index_fixing' AND b.fixing_from='2026-12-01' AND b.fixing_to='2027-01-01';"))
  assert facts=={'rows':31,'days':31,'fixings':1,'from':'2026-12-01','to':'2027-01-01'},facts
  assert value['measures'] is not None and Decimal(value['measures']['realizedUnsettled'])!=0,value['measures']
+ from check_gas_billing_indexed import point_checks
+ point_checks(c,context,booked['tradeId'])
  print('PASS location in-term cash: inherited graph/index periods, original monthly fixing on31 daily rows, actual accrued cash and exact loader retry',flush=True)
