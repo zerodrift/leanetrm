@@ -8129,7 +8129,10 @@ of what is left. A desk chosen in the switcher takes effect once the page has
 moved: the desk or view is set by the navigation that moves the page, so a
 question still open for another choice cannot take it, and a refused leave
 leaves nothing behind. While a physical request is unconfirmed, Trade deliveries
-stays on that request's desk until it is checked or retried. A section the
+stays on that request's desk until it is checked or retried. Another desk still
+opens on an entry of its own that is not Trade deliveries, and an exact delivery
+link to another desk's trade is refused with the reason before its page is left.
+A section the
 account may not open gives way to another tab of the same view. On reload the
 desk is restored and Facilities opens on a view of that desk. A walkthrough step
 that goes to an entry of another desk points at that desk's control. With the

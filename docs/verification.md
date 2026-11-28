@@ -7,7 +7,7 @@ Python 3.13, Node 24.22.3 and Chrome for Testing 158 as the browser. Node is a
 patch ahead of the pinned 24.22.0. The complete `tools/check_all.py` was not
 run.
 
-- `npm test` in `web`, with browser tests: 2,434 of 2,444 pass. The ten
+- `npm test` in `web`, with browser tests: 2,438 of 2,448 pass. The ten
   failures are the typed day quantity tests of `deal-ticket-browser.test.mjs`.
   They fail identically on the commit before this change with this browser and
   touch no changed code.
@@ -21,7 +21,9 @@ run.
 - `--structured-power-check --browser-check`: 16 structured-power and 19
   structured-trading browser checks pass. This run preceded the review fixes
   below and was not repeated after them. The frontend, gas and crude runs above
-  are from after both reviews.
+  are from after every review below.
+- `tools/check_delivery_workbench_http.py` with the browser passes, including
+  the crude delivery link's handoff to the exact trade.
 
 An independent static review of the change examined access, leave guards,
 state and the backend read. It found no account able to reach more or less than
@@ -38,6 +40,13 @@ not keep Trade deliveries on its desk; an account reading trades alone was sent
 from Storage & allocations to the Crude desk; and a second desk chosen while a
 leave question was open cost the first choice its desk. The second was also
 confirmed in the running application as the preview's trader profile.
+
+A third review found the pending-request hold too wide and too late, fixed the
+same way: a desk other than the request's now opens on an entry of its own that
+is not Trade deliveries, and an exact delivery link to another desk's trade is
+refused with the reason before its page is left. The first was confirmed in the
+running application with a synthetic retained gas request: from Power, Crude
+opens on Receipts & dispatches and LNG is refused with the reason.
 
 Not verified here: a person's check of the layout at phone width and with the
 sidebar collapsed, where the switcher is not drawn; the remaining browser and

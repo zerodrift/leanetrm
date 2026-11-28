@@ -4,8 +4,8 @@ import {withBrowserPage,browserAvailable,browserTestTimeout} from './browser-pag
 
 const entries=['facilities-position','physical-operations','facilities-transport','facilities','facilities-crude','rec-inventory'];
 const html='<div id="scheduling-desks" hidden></div>'+entries.map(entry=>`<button id="nav-${entry}">${entry}</button>`).join('');
-const setup=`(async()=>{window.opened=[];window.calls=[];window.refused=[];window.blocked=false;window.rights=['ReadMarketData','ReadTrades','ReadGasOperations'];window.saved={};
- window.desks=(await import('/scheduling-desks.js')).setupSchedulingDesks({permissions:()=>rights,owner:()=>'synthetic-owner',storage:()=>({getItem:key=>saved[key]??null,setItem:(key,value)=>{saved[key]=value;}}),open:(entry,arrive)=>{opened.push(entry);return new Promise(resolve=>{calls.push({arrive,settle:resolve});});},may:desk=>!refused.includes(desk),busy:()=>blocked});
+const setup=`(async()=>{window.opened=[];window.calls=[];window.refused=[];window.explained=[];window.blocked=false;window.rights=['ReadMarketData','ReadTrades','ReadGasOperations'];window.saved={};
+ window.desks=(await import('/scheduling-desks.js')).setupSchedulingDesks({permissions:()=>rights,owner:()=>'synthetic-owner',storage:()=>({getItem:key=>saved[key]??null,setItem:(key,value)=>{saved[key]=value;}}),open:(entry,arrive)=>{opened.push(entry);return new Promise(resolve=>{calls.push({arrive,settle:resolve});});},may:(desk,entry)=>!refused.includes(desk)&&!refused.includes(entry),refuse:desk=>explained.push(desk),busy:()=>blocked});
  window.listed=()=>[...document.querySelectorAll('[id^=nav-]')].filter(b=>!b.hidden).map(b=>b.id.slice(4));
  window.pressed=()=>[...document.querySelectorAll('#scheduling-desks button')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.textContent);})()`;
 const browser={skip:!browserAvailable,timeout:browserTestTimeout};
@@ -46,6 +46,17 @@ test('a desk the app holds back is not opened',browser,()=>withBrowserPage(html,
  await evaluate(setup);await evaluate("desks.start();refused=['crude'];document.querySelector('#scheduling-desk-crude').click();document.querySelector('#scheduling-desk-power').click()");
  assert.deepEqual(await evaluate('opened'),['rec-inventory']);
  assert.equal(await evaluate('desks.current()'),'gas');
+ assert.deepEqual(await evaluate('explained'),['crude'],'the app is told so it can say why');
+}));
+test('a desk opens on its first entry the app does not hold back',browser,()=>withBrowserPage(html,async evaluate=>{
+ await evaluate(setup);await evaluate("desks.start();refused=['physical-operations'];document.querySelector('#scheduling-desk-crude').click()");
+ assert.deepEqual(await evaluate('opened'),['facilities-crude'],'Receipts & dispatches stays reachable');
+ assert.deepEqual(await evaluate('explained'),[]);
+ await evaluate("calls[0].arrive();desks.page('facilities-crude')");
+ assert.equal(await evaluate('desks.current()'),'crude');
+ await evaluate("document.querySelector('#scheduling-desk-lng').click()");
+ assert.deepEqual(await evaluate('opened'),['facilities-crude'],'a desk with no other entry is not opened');
+ assert.deepEqual(await evaluate('explained'),['lng']);
 }));
 test('an entry on another desk is reached through that desk\'s control',browser,()=>withBrowserPage(html,async evaluate=>{
  await evaluate(setup);await evaluate('desks.start()');

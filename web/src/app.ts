@@ -1421,6 +1421,25 @@ const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,p
 const lifecycle=setupLifecycle($('lifecycle-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,historical:()=>!!historicalContext(),changed:()=>{syncUnloadQuestion();assistant.sync();},committed:()=>{futures.financialCommitted();riskJobs.financialChanged();},
  context:()=>{if(contextDirty)throw Error('Apply the changed header context first.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?retainedKnowledge(retained):{})};}});
+// Whether a physical request still unconfirmed on another desk holds Trade deliveries: its status and retry controls belong with
+// that desk's trades.
+function deliveriesHeld(desk:string){
+  const held=physicalOperations.pendingDesk();return held!==null&&held!==desk;
+}
+function explainDeliveriesHeld(){
+  notice('Check or retry the retained physical request before opening another desk’s deliveries.');
+}
+// An exact delivery opened from another page, on its trade's desk. A held desk is explained here, before this page is left.
+async function openNativeDelivery(target:Parameters<typeof physicalOperations.open>[0]){
+  if(busy)return;
+  const desk=({physical_gas:'gas',physical_crude:'crude'} as const)[target.instrumentType];
+  if(deliveriesHeld(desk)){explainDeliveriesHeld();return;}
+  if(!await mayLeave('page'))return;
+  await act(async()=>{
+    if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');
+    desks.want(desk);await setPage('physical-operations');await physicalOperations.open(target);
+  });
+}
 const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,changed:()=>{syncUnloadQuestion();assistant.sync();},
  desk:()=>{const desk=desks.current();if(desk!=='gas'&&desk!=='crude'&&desk!=='lng')throw Error('Choose a desk that lists trade deliveries.');return desk;},
@@ -1428,7 +1447,7 @@ const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{
 const facilities=setupFacilities({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,
  nominationContext:()=>!contextDirty&&!historicalContext()&&select('snapshot').value?{snapshotId:select('snapshot').value,convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current',contextId:null}:null,
  nativeDeliveryReason:()=>contextDirty?'Apply the changed context before opening native delivery operations.':!select('snapshot').value?'Choose a financial close in the Blotter before opening native delivery operations.':null,
- openNativeDelivery:async target=>{if(busy||!await mayLeave('page'))return;await act(async()=>{if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');desks.want(({physical_gas:'gas',physical_crude:'crude'} as const)[target.instrumentType]);await setPage('physical-operations');await physicalOperations.open(target);});},
+ openNativeDelivery,
  context:()=>{if(contextDirty)throw Error('Apply the changed context before reading facilities.');return {effectiveOn:$<HTMLInputElement>('date-context-on').value,knowledgeMode:historicalContext()?'retained':'current',retained:historicalContext()??null,convention:'facility_business_date_end_utc_v1'};},
  changed:()=>syncUnloadQuestion(),tradeInspection:()=>select('snapshot').value?null:'Choose a market close in the Blotter before opening trades. Facility quantities do not select a price close.',openTrade:async(id,revision)=>{if(!await mayLeave())return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'physical_gas',revision);});}});
 const pointTraderMark=setupPointTraderMark($('point-trader-mark'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
@@ -1804,8 +1823,9 @@ const facilityViewsNav=setupFacilityViews({view:()=>facilities.view(),choose:vie
 // The Scheduling entry the app shows, or null on a page outside Scheduling or while that page is not shown, as after access ends.
 const schedulingEntry=()=>(page==='facilities'||page==='physical-operations'||page==='rec-inventory')&&!$(page+'-page').hidden?page==='facilities'?facilities.view():page:null;
 const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administrationScope+':'+exampleId+':'+currentProfile,storage:()=>sessionStorage,open:(entry,arrive)=>isFacilityView(entry)?facilityViewsNav.open(entry,arrive):navigate(entry,arrive)(),busy:()=>busy,
- // An unconfirmed physical request keeps Trade deliveries on its own desk until it is checked or retried.
- may:(desk,entry)=>{const held=entry==='physical-operations'?physicalOperations.pendingDesk():null;if(held===null||held===desk)return true;notice('Check or retry the retained physical request before opening another desk’s deliveries.');return false;}});
+ // An unconfirmed physical request keeps Trade deliveries on its own desk until it is checked or retried. Another desk still opens
+ // on an entry of its own that is not Trade deliveries.
+ may:(desk,entry)=>entry!=='physical-operations'||!deliveriesHeld(desk),refuse:explainDeliveriesHeld});
 // Trade deliveries is Cargoes on the LNG desk. The eyebrow names the desk beside the group.
 const deliveriesName=()=>desks.current()==='lng'?'Cargoes':'Trade deliveries';
 function syncScheduling(){

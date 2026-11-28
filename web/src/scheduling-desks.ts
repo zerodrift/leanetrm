@@ -14,9 +14,10 @@ export function deskFor(entry:string,current:DeskId|null,permissions:string[]):D
 // Navigation only: which desk's entries the Scheduling group lists. Choosing a desk opens its first entry through that entry's own
 // guards and takes effect once the page has moved: `open` calls `arrive` as its navigation moves the page, and only then is the desk
 // chosen, so a question still open for another desk cannot take it. `open` settles when that navigation has finished or been
-// refused; a refused leave changes nothing. `may` lets the app hold a desk back. Only the desk's identifier is remembered, per tab,
+// refused; a refused leave changes nothing. `may` lets the app hold an entry back: the desk then opens on its first entry that is
+// not held, and `refuse` is told when it has none, so the app can say why. Only the desk's identifier is remembered, per tab,
 // workspace and account.
-export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>string;storage:()=>DeskStorage;open:(entry:string,arrive:()=>void)=>Promise<void>|void;may:(desk:DeskId,entry:string)=>boolean;busy:()=>boolean}){
+export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>string;storage:()=>DeskStorage;open:(entry:string,arrive:()=>void)=>Promise<void>|void;may:(desk:DeskId,entry:string)=>boolean;refuse:(desk:DeskId)=>void;busy:()=>boolean}){
  const root=document.getElementById('scheduling-desks')!,entries=[...new Set(schedulingDesks.flatMap(desk=>desk.pages))];
  let desk:DeskId|null=null,wanted:DeskId|undefined;
  function draw(){
@@ -32,7 +33,8 @@ export function setupSchedulingDesks(o:{permissions:()=>string[];owner:()=>strin
  }
  async function choose(d:Desk){
   if(o.busy()||d.id===desk)return;
-  const first=d.pages.find(page=>pageAvailable(page,o.permissions()));if(first===undefined||!o.may(d.id,first))return;
+  const permitted=d.pages.filter(page=>pageAvailable(page,o.permissions()));if(!permitted.length)return;
+  const first=permitted.find(page=>o.may(d.id,page));if(first===undefined){o.refuse(d.id);return;}
   try{await o.open(first,()=>{wanted=d.id;});}finally{if(wanted===d.id)wanted=undefined;}
  }
  function set(next:DeskId|null){
