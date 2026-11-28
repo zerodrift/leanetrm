@@ -1,5 +1,5 @@
 import {chooseCalendars} from './side-calendars.mjs';
-import {openPhysicalTrade,selectDeliveryFrame} from './physical-operations-grid.mjs';
+import {openPhysicalTrade,openTradeDeliveries,selectDeliveryFrame} from './physical-operations-grid.mjs';
 import {run as inventorySales} from './crude-inventory-sales.mjs';
 import {newTrade,closeNewTrade} from './new-trade.mjs';
 import {captureSideTerms,retainedSideTerms,sideCards,sidePhone} from './instrument-side-qualification.mjs';
@@ -44,12 +44,12 @@ export async function run(actions){
  const chooseJanuary=()=>selectDeliveryFrame(actions,'2021-01-15T08:');
  const capFacts=()=>evaluate(`{if(!window.crudeFactPages){window.crudeFactPages=[];const original=window.fetch;window.fetch=(path,init)=>{if(String(path).endsWith('/physical/operations/directory')&&init?.body){const body=JSON.parse(init.body);body.limit=2;window.crudeFactPages.push(body);return original(path,{...init,body:JSON.stringify(body)});}return original(path,init);};}}`);
  const openFacts=async()=>{
-  await click('#nav-physical-operations');await wait("!document.querySelector('#physical-operations-refresh').disabled&&"+idle);
+  await openTradeDeliveries(actions,'crude');await wait("!document.querySelector('#physical-operations-refresh').disabled&&"+idle);
   await openPhysicalTrade(actions,await evaluate("JSON.parse(sessionStorage.getItem('crude-browser-receipt')).tradeId"));await wait("!document.querySelector('#physical-operations-tabs-delivery').disabled&&"+idle);await click('#physical-operations-tabs-delivery');await wait(operationsVisible+"&&"+idle);
  };
  await capFacts();await chooseJanuary();await openFacts();
  await check('operations beyond the first fact page remain reachable under one retained context',"window.crudeFactPages.some(p=>p.offset>0)&&window.crudeFactPages.slice(1).every(p=>p.context.knowledgeMode==='retained')&&new Set(window.crudeFactPages.slice(1).map(p=>p.context.contextId)).size===1","window.crudeFactPages.map(p=>({offset:p.offset,context:p.context}))");
- await check('post-delivery facts open delivery and cash without requiring contractual PV',"document.querySelector('#page-title').textContent==='Physical operations'&&!document.querySelector('#crude-operations').hidden&&document.querySelector('#crude-operation-profile').value===''&&document.querySelector('#crude-operation-disposition').value===''&&!document.querySelector('#crude-operation-title').checked");
+ await check('post-delivery facts open delivery and cash without requiring contractual PV',"document.querySelector('#page-title').textContent==='Trade deliveries'&&!document.querySelector('#crude-operations').hidden&&document.querySelector('#crude-operation-profile').value===''&&document.querySelector('#crude-operation-disposition').value===''&&!document.querySelector('#crude-operation-title').checked");
  const common=async(kind,key)=>{await set('#crude-operation-kind',kind);await set('#crude-operation-profile','physical_crude_receipt_cash_v1');await set('#crude-operation-businessKey',key);await set('#crude-operation-effectiveAt','2021-01-04T12:00:00');await set('#crude-operation-evidence','Synthetic certified custody evidence');};
  await common('receipt','browser-certified-receipt');await set('#crude-operation-quantity','400');await set('#crude-operation-disposition','owned_inventory');await click('#crude-operation-title');
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/crude/operations/receipt')&&response.ok){sessionStorage.setItem('crude-browser-operation',JSON.stringify(JSON.parse(args[1].body)));throw new TypeError('Synthetic lost receipt response');}return response;};}`);
