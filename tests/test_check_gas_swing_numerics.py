@@ -52,7 +52,6 @@ class SwingOracleChecks(unittest.TestCase):
             subprocess.CompletedProcess(['ps'], 1, ''),
             subprocess.CompletedProcess(['ps'], 1, '200 R'),
             subprocess.CompletedProcess(['ps'], 0, ''),
-            subprocess.CompletedProcess(['ps'], 0, '0 R'),
             subprocess.CompletedProcess(['ps'], 0, '0 S'),
             subprocess.CompletedProcess(['ps'], 0, '0 ?'),
             subprocess.CompletedProcess(['ps'], 0, '0 UNKNOWN_STATE'),
@@ -61,25 +60,48 @@ class SwingOracleChecks(unittest.TestCase):
             subprocess.CompletedProcess(['ps'], 0, '100'),
             OSError('ps unavailable'),
         ]
-        for prefix in ([], [valid]):
-            for failure in failures:
-                with self.subTest(previous_samples=len(prefix), failure=failure):
-                    process = Mock(pid=123, returncode=0)
-                    # A final valid sample would let a worker with a lost reading qualify.
-                    readings = [*prefix, failure, valid]
-                    def sample(*args, **kwargs):
-                        reading = readings.pop(0)
-                        if isinstance(reading, Exception):
-                            raise reading
-                        return reading
-                    process.poll.side_effect = lambda: None if readings else 0
-                    with patch.object(subprocess, 'Popen', return_value=process), \
-                         patch.object(subprocess, 'run', side_effect=sample), patch('time.sleep'):
-                        with self.assertRaises((RuntimeError, OSError)):
-                            run_preview.measure_worker(['worker'], None, {}, 1)
-                    self.assertEqual([valid], readings)
-                    process.kill.assert_called_once()
-                    process.wait.assert_called_once()
+        # Once a worker has had pages, a zero reading from a runnable or waiting one is a lost reading.
+        lost = [subprocess.CompletedProcess(['ps'], 0, '0 R'), subprocess.CompletedProcess(['ps'], 0, '0 D')]
+        for prefix, failure in [*product(([], [valid]), failures), *product(([valid],), lost)]:
+            with self.subTest(previous_samples=len(prefix), failure=failure):
+                process = Mock(pid=123, returncode=0)
+                # A final valid sample would let a worker with a lost reading qualify.
+                readings = [*prefix, failure, valid]
+                def sample(*args, **kwargs):
+                    reading = readings.pop(0)
+                    if isinstance(reading, Exception):
+                        raise reading
+                    return reading
+                process.poll.side_effect = lambda: None if readings else 0
+                with patch.object(subprocess, 'Popen', return_value=process), \
+                     patch.object(subprocess, 'run', side_effect=sample), patch('time.sleep'):
+                    with self.assertRaises((RuntimeError, OSError)):
+                        run_preview.measure_worker(['worker'], None, {}, 1)
+                self.assertEqual([valid], readings)
+                process.kill.assert_called_once()
+                process.wait.assert_called_once()
+
+    def test_worker_rss_start_race_accepts_zero_until_the_worker_first_runs(self):
+        # A started process has no resident pages until it runs: Linux reports it runnable (R) or waiting on its image (D).
+        for state in ('R', 'D'):
+            with self.subTest(state=state):
+                process = Mock(pid=123, returncode=0)
+                readings = [subprocess.CompletedProcess(['ps'], 0, reading)
+                            for reading in (f'0 {state}', f'0 {state}', '128 S', '256 R')]
+                process.poll.side_effect = lambda: None if readings else 0
+                with patch.object(subprocess, 'Popen', return_value=process), \
+                     patch.object(subprocess, 'run', side_effect=lambda *a, **kw: readings.pop(0)), patch('time.sleep'):
+                    self.assertEqual((128, 256), run_preview.measure_worker(['worker'], None, {}, 1))
+                process.kill.assert_not_called()
+                process.wait.assert_called_once()
+        # A worker that never reports pages has no measurement.
+        process = Mock(pid=123, returncode=0)
+        readings = [subprocess.CompletedProcess(['ps'], 0, '0 R'), subprocess.CompletedProcess(['ps'], 0, '0 R')]
+        process.poll.side_effect = lambda: None if readings else 0
+        with patch.object(subprocess, 'Popen', return_value=process), \
+             patch.object(subprocess, 'run', side_effect=lambda *a, **kw: readings.pop(0)), patch('time.sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'positive RSS'):
+                run_preview.measure_worker(['worker'], None, {}, 1)
 
     def test_worker_rss_exit_race_requires_a_positive_sample_and_reaps(self):
         # A vanished PID returns no match. A worker can lose its pages in exit before waitpid is ready.

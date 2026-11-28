@@ -188,11 +188,40 @@ class AdmissionChecks(unittest.TestCase):
             with self.subTest(error=type(error).__name__):
                 self.assertEqual(deploy.failure_line(error), 'DEPLOYMENT_FAILED ' + type(error).__name__)
 
-    def test_schema_fingerprint_only_removes_dump_random_restrict_keys(self):
-        first = b'--schema\n\\restrict alpha\nCREATE TABLE t(id int);\n\\unrestrict alpha\n'
-        second = first.replace(b'alpha', b'beta')
-        self.assertEqual(deploy.schema_fingerprint(first), deploy.schema_fingerprint(second))
-        self.assertNotEqual(deploy.schema_fingerprint(first), deploy.schema_fingerprint(first.replace(b'int', b'text')))
+    def test_schema_fingerprint_ignores_only_the_dump_restrict_key_and_header_versions(self):
+        def dump(key, version, body=b'CREATE TABLE t(id int);\n'):
+            return (b'--\n-- PostgreSQL database dump\n--\n\n\\restrict ' + key + b'\n\n'
+                    b'-- Dumped from database version ' + version + b'\n'
+                    b'-- Dumped by pg_dump version ' + version + b'\n\n' + body
+                    + b'\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict ' + key + b'\n\n')
+        fingerprint = deploy.schema_fingerprint
+        first = dump(b'alpha', b'18.6 (Synthetic 18.6-1)')
+        self.assertEqual(fingerprint(first), fingerprint(dump(b'beta', b'18.7 (Synthetic 18.7-2)')))
+        self.assertNotEqual(fingerprint(first), fingerprint(first.replace(b'int', b'text')))
+        # After the header the same lines are schema content, here inside a function's string literal.
+        for line in (b'-- Dumped from database version 1', b'-- Dumped by pg_dump version 1',
+                     b'\\restrict 1', b'\\unrestrict 1',
+                     b'-- Dumped from database version 1\n-- Dumped by pg_dump version 1'):
+            with self.subTest(line=line):
+                literal = b"CREATE FUNCTION f() RETURNS text LANGUAGE sql AS $$SELECT '\n" + line + b"\n'$$;\n"
+                self.assertNotEqual(fingerprint(dump(b'alpha', b'18.6', literal)),
+                                    fingerprint(dump(b'alpha', b'18.6', literal.replace(b'1', b'2'))))
+
+    def test_schema_fingerprint_refuses_a_dump_it_does_not_recognize(self):
+        valid = (b'--\n-- PostgreSQL database dump\n--\n\n\\restrict alpha\n\n'
+                 b'-- Dumped from database version 18.6\n-- Dumped by pg_dump version 18.6\n\n'
+                 b'CREATE TABLE t(id int);\n\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict alpha\n\n')
+        deploy.schema_fingerprint(valid)
+        for name, data in {
+                'empty': b'', 'text before the header': b'\n' + valid,
+                'no server version': valid.replace(b'-- Dumped from database version 18.6\n', b''),
+                'no pg_dump version': valid.replace(b'-- Dumped by pg_dump version 18.6\n', b''),
+                'no restrict key': valid.replace(b'\\restrict alpha\n\n', b''),
+                'another closing key': valid.replace(b'\\unrestrict alpha', b'\\unrestrict beta'),
+                'text after the end': valid + b'CREATE TABLE u(id int);\n',
+                'carriage returns': valid.replace(b'\n', b'\r\n')}.items():
+            with self.subTest(name), self.assertRaises(deploy.ReleaseError):
+                deploy.schema_fingerprint(data)
 
 
 class ApiResourceChecks(unittest.TestCase):
