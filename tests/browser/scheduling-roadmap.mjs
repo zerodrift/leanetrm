@@ -1,0 +1,32 @@
+export async function run({command,evaluate,click,persona,check,fitsWidth}){
+ await command('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
+ await persona('operator');
+ if(await evaluate("document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'"))await click('#sidebar-toggle');
+ await click('#scheduling-desk-gas');await click('#nav-physical-operations');
+ await check('Gas offers its own collapsed contribution roadmap',"!document.querySelector('#scheduling-roadmap').hidden&&!document.querySelector('#scheduling-roadmap details').open&&document.querySelector('#scheduling-roadmap summary').textContent.includes('Gas · Planned workflows')");
+ await click('#scheduling-roadmap summary');
+ await check('opening the roadmap preserves the operating page and offers no business actions',"document.querySelector('#page-title').textContent==='Trade deliveries'&&document.querySelector('#scheduling-roadmap details').open&&document.querySelectorAll('#scheduling-roadmap button,#scheduling-roadmap form').length===0");
+ await click('#scheduling-desk-crude');
+ await check('Crude displays parcels, pipelines and chartering as seven TBD workflows',"document.querySelector('#scheduling-roadmap summary').textContent.includes('Crude · Planned workflows')&&document.querySelectorAll('#scheduling-roadmap .workflow-status').length===7&&['Cargo parcels & liftings','Pipeline movements','Time charters'].every(title=>[...document.querySelectorAll('#scheduling-roadmap h3')].some(e=>e.textContent===title))");
+ await click('#nav-facilities-crude');
+ await check('the same roadmap accompanies Receipts and dispatches',"document.querySelector('#page-title').textContent==='Receipts & dispatches'&&document.querySelector('#scheduling-roadmap summary').textContent.includes('Crude · Planned workflows')");
+ await click('#scheduling-desk-lng');
+ await check('LNG names its missing actuals and shipping alongside Cargoes',"document.querySelector('#page-title').textContent==='Cargoes'&&document.querySelector('#scheduling-roadmap summary').textContent.includes('LNG · Planned workflows')&&[...document.querySelectorAll('#scheduling-roadmap h3')].some(e=>e.textContent==='Cargo actuals & reconciliation')");
+ await click('#scheduling-desk-power');
+ await check('Power retains REC inventory and labels future scheduling separately',"document.querySelector('#page-title').textContent==='REC inventory'&&document.querySelector('#scheduling-roadmap summary').textContent.includes('Power · Planned workflows')&&document.querySelectorAll('#scheduling-roadmap .workflow-status').length===2");
+ await click('#nav-lifecycle');
+ await check('the scheduling roadmap is hidden on Trading pages',"document.querySelector('#scheduling-roadmap').hidden");
+ await persona('trader');await click('#nav-facilities');
+ await check('a limited reader sees the Gas roadmap on the permitted Storage view',"document.querySelector('#page-section').textContent==='SCHEDULING · GAS'&&!document.querySelector('#scheduling-roadmap').hidden&&document.querySelector('#scheduling-roadmap summary').textContent.includes('Gas · Planned workflows')");
+ await persona('operator');await click('#scheduling-desk-gas');await click('#nav-physical-operations');
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+ await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+ if(await evaluate("document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'"))await click('#sidebar-toggle');
+ await click('#scheduling-desk-crude');
+ await check('choosing a desk closes the phone menu and shows the destination',"document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'&&document.querySelector('#page-section').textContent==='SCHEDULING · CRUDE'");
+ if(!await evaluate("document.querySelector('#scheduling-roadmap details').open"))await click('#scheduling-roadmap summary');
+ await check('the expanded roadmap fits a phone',fitsWidth);
+ await click('#sidebar-toggle');await click('#nav-facilities-crude');
+ await click('#sidebar-toggle');await click('#scheduling-desk-gas');
+ await check('a desk switch within Facilities closes the phone menu before its controls become busy',"document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'&&document.querySelector('#page-title').textContent==='Gas day position'&&document.querySelector('#page-section').textContent==='SCHEDULING · GAS'");
+}

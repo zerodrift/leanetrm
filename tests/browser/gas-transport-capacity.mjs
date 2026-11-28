@@ -17,7 +17,8 @@ async function run(a){
    if(response.ok&&path==='/api/gas/transport/capacity/record'&&window.capacityLoseReply){capacityLoseReply=false;throw new TypeError('Synthetic capacity acknowledgement lost after commit');}return response;
   };
  }`);
- await click('#profile-open');await set('#zone','UTC');await click('#profile-save',60000);await click('#nav-facilities',60000);
+ await click('#profile-open');await set('#zone','UTC');await click('#profile-save',60000);await click('#nav-facilities-transport',60000);
+ await click('[data-facilities-view=transport]',60000);
  const source=()=>evaluate('capacitySource');
  const latest=kind=>evaluate(`capacityCalls.filter(call=>call.path==='/api/gas/transport/capacity/${kind}').at(-1)`);
  const operatingDate=async day=>{
@@ -25,7 +26,7 @@ async function run(a){
   await wait("!document.querySelector('#use-business-date-current').disabled",60000);await click('#use-business-date-current',60000);
   await check('the explicit capacity business date uses current knowledge without a financial close or hidden facility read',`(()=>{const read=capacityCalls.filter(call=>call.path==='/api/gas/transport/capacity/directory').at(-1);return document.querySelector('#snapshot').value===''&&!!window.capacityNavigation&&capacityNavigation.context==null&&document.querySelector('#workspace-mode-label').textContent.includes('Working data')&&capacityCalls.every(call=>!call.path.startsWith('/api/facilities/'))&&read.status===200&&read.result.historical===false&&read.body.context.effectiveOn===${q(day)}&&read.body.context.knowledgeMode==='current';})()`);
  };
- await check('Transport-only authority opens capacity without facility, stock or booking controls',"!document.querySelector('[data-facilities-view=transport]').disabled&&['definitions','activity','quantities'].every(view=>document.querySelector('[data-facilities-view='+view+']').disabled)&&document.querySelector('[data-transport-capacity=source-search]')===null");
+ await check('Transport-only authority opens capacity without facility, stock or booking controls',"document.querySelector('#transport-capacity-workspace').checkVisibility()&&document.querySelector('#nav-facilities-transport').classList.contains('active')&&!document.querySelector('[data-facilities-view=transport]').disabled&&['definitions','activity','quantities'].every(view=>document.querySelector('[data-facilities-view='+view+']').disabled)&&document.querySelector('[data-transport-capacity=source-search]')===null");
  await operatingDate(f.day);
  async function pick(host,name,value){
   await evaluate(`(()=>{const input=(${host}).querySelector('[name='+${q(name)}+']');if(!input)throw Error('Missing exact capacity field '+${q(name)});input.value=${q(value)};if(input instanceof HTMLSelectElement&&input.value!==${q(value)})throw Error('Missing exact capacity choice '+${q(name)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);

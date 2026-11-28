@@ -270,9 +270,9 @@ cannot create facts or reinterpret present command receipts as historical data.
 
 ## User interfaces and qualification
 
-Scheduling → Operating facilities contains consumed physical fields, supplied
+Trading → Operating facilities contains consumed physical fields, supplied
 plans, reviewed trade booking, saved-trade selection/repricing and the price
-hedge report. Scheduling → REC inventory contains account/destination setup,
+hedge report. Scheduling → Power → REC inventory contains account/destination setup,
 exact serial evidence, per-product balances/history and standalone forward
 booking. New Trade → REC forward reuses that editor. Saved trades open in the
 ordinary Blotter and independent Side inspector. Inventory has its own explicit
