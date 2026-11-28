@@ -1,5 +1,6 @@
 """Exercise the market editor with certified browser inputs on a disposable preview."""
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 import json
 import time
 from uuid import UUID, uuid4
@@ -283,8 +284,10 @@ def check_expired(query, manifest, attempt):
     temporary = str(uuid4())
     tenant, workspace = manifest['tenantId'], manifest['workspaceId']
     with ThreadPoolExecutor(max_workers=1) as pool:
-        blocker = pool.submit(query, "BEGIN; SET LOCAL application_name='curve_editor_http_wait';"
-                              "SELECT pg_advisory_xact_lock(730849102); SELECT pg_sleep(3.5); COMMIT;")
+        # The lock is kept until the request has waited for it under the first grant and the successor is active.
+        blocker = pool.submit(query, lock_holder('curve_editor_http_wait', 'SELECT pg_advisory_xact_lock(730849102)',
+            f"(SELECT bool_or(granted_to<=clock_timestamp()) FROM security.role_grants WHERE role_id='{temporary}')",
+            f"(SELECT bool_and(granted_from<=clock_timestamp()) FROM security.role_grants WHERE role_id='{temporary}')"))
         until = time.monotonic() + 4
         while query("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='curve_editor_http_wait' "
                    "AND wait_event='PgSleep');") != 't':
@@ -295,8 +298,8 @@ def check_expired(query, manifest, attempt):
             INSERT INTO security.roles VALUES('{temporary}','synthetic_curve_timer','Synthetic publication timer');
             INSERT INTO security.role_permissions VALUES('{temporary}','ImportObservations');
             INSERT INTO security.role_grants VALUES
-              (gen_random_uuid(),'{actor}','{temporary}','{tenant}','{workspace}',clock_timestamp()-interval '1 second',clock_timestamp()+interval '1.2 seconds',false),
-              (gen_random_uuid(),'{actor}','{temporary}','{tenant}','{workspace}',clock_timestamp()+interval '2 seconds',clock_timestamp()+interval '30 seconds',false);
+              (gen_random_uuid(),'{actor}','{temporary}','{tenant}','{workspace}',clock_timestamp()-interval '1 second',clock_timestamp()+interval '2 seconds',false),
+              (gen_random_uuid(),'{actor}','{temporary}','{tenant}','{workspace}',clock_timestamp()+interval '3 seconds',clock_timestamp()+interval '30 seconds',false);
             COMMIT;""")
         try:
             assert attempt()['code'] == 'curve_mark_denied'

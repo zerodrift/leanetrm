@@ -65,6 +65,15 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         owners[turn]=new(session,session.Profile??throw new PreviewDeniedException(),user.Clone());
     }
 
+    // Routing's collection of every route the application maps. It builds them on its first read and again only when a
+    // route source changes, whereas each read of the application's grouped sources builds every route. It is empty until
+    // the host starts.
+    internal static Func<IEnumerable<Endpoint>> Routes(IServiceProvider services)
+    {
+        var mapped=services.GetRequiredService<EndpointDataSource>();
+        return()=>mapped.Endpoints;
+    }
+
     RouteEndpoint Endpoint(AssistantOperation operation)=>Endpoint(operation,endpoints().OfType<RouteEndpoint>());
 
     RouteEndpoint Endpoint(AssistantOperation operation,IEnumerable<RouteEndpoint> available)=>available.SingleOrDefault(e=>
@@ -254,8 +263,8 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         var visible=AssistantOperations.ForPage(page).Where(o=>(id is null||o.Id==id)&&o.Permissions.All(permissions.Contains)).ToArray();
         var operations=new JsonArray();
         if(visible.Length==0)return operations;
-        // Grouped endpoint sources rebuild their route metadata when enumerated. Resolve the catalog against one
-        // read-local snapshot, never once per operation; current authority and the retained context are not cached.
+        // Resolve the catalog against one read-local snapshot of the route source, never one read per operation;
+        // current authority and the retained context are not cached.
         var available=snapshot??endpoints().OfType<RouteEndpoint>().ToArray();
         foreach(var operation in visible)
         {

@@ -1,7 +1,7 @@
 # Issue reports
 
 A signed-in person can send a report about the software to the installation's
-issue tracker and get back the issue's number and link (D463). This document
+issue tracker and get back the issue's number and link (D467). This document
 records what is implemented, its contracts and what remains.
 
 "Ticket" already means the deal ticket in this application, so the feature is
@@ -11,7 +11,7 @@ named for what it creates: an issue report.
 
 | Part | State |
 | --- | --- |
-| Workspace policy: `disabled` or `review_required`, with a daily limit per person | Implemented (migration 0412) |
+| Workspace policy: `disabled` or `review_required`, with a daily limit per person | Implemented (migration 0414) |
 | Retained requests with replay, conflict and a daily bound | Implemented |
 | One admitted dispatch per attempt; uncertain outcomes; lookup, resend and abandon | Implemented |
 | GitHub App adapter: scoped token, create issue, find issue by marker | Implemented |
@@ -312,7 +312,7 @@ Run from the repository root with stock PostgreSQL 18 and the pinned .NET SDK.
 connected to the synthetic tracker, to try the screens by hand.
 
 All use synthetic data and disposable resources. Results are recorded in
-[verification](verification.md#issue-reports-d463).
+[verification](verification.md#issue-reports-d467).
 
 Not covered by a check: an installation with no tracker connection, concurrent
 requests, and the 24-hour roll-off of the daily limit. The synthetic tracker

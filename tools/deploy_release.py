@@ -46,9 +46,17 @@ def attestation_command(gh, artifact, attestation, repository, branch, workflow,
             '--deny-self-hosted-runners', '--format', 'json']
 
 
+# A complete pg_dump script. Its random restrict key and the header's server and pg_dump
+# versions are not schema; the same text inside the dumped schema is.
+SCHEMA_DUMP = re.compile(rb'\A--\n-- PostgreSQL database dump\n--\n\n\\restrict (?P<key>[^\n]+)\n\n'
+                         rb'-- Dumped from database version [^\n]+\n-- Dumped by pg_dump version [^\n]+\n'
+                         rb'(?P<schema>.*\n)\\unrestrict (?P=key)\n\n\Z', re.DOTALL)
+
+
 def schema_fingerprint(data):
-    data = re.sub(rb'^\\(?:un)?restrict [^\n]+\n?', b'', data, flags=re.MULTILINE)
-    return hashlib.sha256(data).hexdigest()
+    dump = SCHEMA_DUMP.match(data)
+    require(dump, 'unrecognized schema dump')
+    return hashlib.sha256(dump['schema']).hexdigest()
 
 
 def atomic_json(path, value):

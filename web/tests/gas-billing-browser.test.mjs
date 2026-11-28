@@ -17,6 +17,40 @@ test('billing owns readonly, global busy and retained-command controls without t
  assert.deepEqual(result,{initially:false,blocked:true,restored:true,retained:true,readonly:true,edited:false});
 }));
 
+test('an indexed claim names its index, reviews the fixing, spread and unit price, and sends the reviewed fixing',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ const indexed={...view,profiles:['gas_final_daily_fixed_cash_v1','gas_final_daily_entry_cash_v1','gas_final_daily_indexed_cash_v1'],claims:[{...view.claims[0],code:'daily',role:'indexed_consideration',price:null,
+  profiles:['gas_final_daily_indexed_cash_v1'],index:{code:'synthetic_daily',convention:'named_index_daily_v1',spread:'0.05'}}]};
+ const result=await evaluate(`(async()=>{const {setupGasBilling}=await import('/gas-billing.js');let sent;
+  const api=async path=>path==='gas/billing/read'?${JSON.stringify(indexed)}:{previewHash:'reviewed',sourceId:'source',previousId:null,amount:'-328.3',contribution:'-328.3',currency:'usd',contractualDueAt:'2021-02-10T00:00:00Z',alreadyDetermined:false,
+   fixing:{observationId:'fixing',value:'3.3',correctsId:null,index:'synthetic_daily',spread:'0.05',unitPrice:'3.35'}};
+  setupGasBilling(document.querySelector('#host'),{api,context:()=>({}),tradeId:'synthetic',actor:()=> 'operator',zone:()=> 'UTC',workflow:{busy:()=>false,pending:()=>undefined,changed(){},async queue(command){sent=command.body;}}});
+  const tick=()=>new Promise(r=>setTimeout(r,0));await tick();const root=document.querySelector('.gas-billing'),profile=root.querySelector('[data-billing=profile]');
+  const claim=root.querySelector('[data-billing=claim]').options[1].textContent,pick=()=>[...profile.options].filter(o=>o.value).map(o=>[o.value,o.textContent]);
+  for(const [name,value] of [['claim','0'],['policy','final_allocated_billing_v1'],['profile','gas_final_daily_indexed_cash_v1'],['rounding','currency_minor_units_to_even_v1'],['evidence','Synthetic review']]){const field=root.querySelector('[data-billing='+name+']');field.value=value;field.dispatchEvent(new Event('change',{bubbles:true}));}
+  const profiles=pick();root.querySelector('form').requestSubmit();await tick();const review=root.querySelector('[data-billing=review]').textContent;
+  root.querySelector('[data-billing=confirm]').click();await tick();
+  return {claim,profiles,review,fixing:sent.fixingObservationId,keys:Object.keys(sent).sort()};
+ })()`);
+ assert.match(result.claim,/synthetic_daily index, spread 0\.05 usd/);assert.doesNotMatch(result.claim,/null|unavailable/);
+ assert.deepEqual(result.profiles,[['gas_final_daily_indexed_cash_v1','Final daily indexed cash · final published fixing plus spread']]);
+ assert.match(result.review,/^Final fixing: 3\.3 on synthetic_daily\nSpread: 0\.05\nUnit price: 3\.35\nRestated amount: -328\.3 usd/);
+ assert.equal(result.fixing,'fixing');
+ assert.deepEqual(result.keys,['correctionDueAt','evidence','expectedPreviousId','fixingObservationId','preview','previewHash','reason','sourceId']);
+}));
+
+test('a later review that offers nothing to accept withdraws the earlier review',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ const result=await evaluate(`(async()=>{const {setupGasBilling}=await import('/gas-billing.js');let already=false,sent=0;
+  const reviewed={previewHash:'reviewed',sourceId:'source',previousId:null,amount:'-300',contribution:'-300',currency:'usd',contractualDueAt:'2021-02-02T00:00:00Z'};
+  const api=async path=>path==='gas/billing/read'?${JSON.stringify(view)}:{...reviewed,alreadyDetermined:already};
+  setupGasBilling(document.querySelector('#host'),{api,context:()=>({}),tradeId:'synthetic',actor:()=> 'operator',zone:()=> 'UTC',workflow:{busy:()=>false,pending:()=>undefined,changed(){},async queue(){sent++;}}});
+  const tick=()=>new Promise(r=>setTimeout(r,0));await tick();const root=document.querySelector('.gas-billing'),confirm=root.querySelector('[data-billing=confirm]');
+  for(const [name,value] of [['claim','0'],['policy','final_allocated_billing_v1'],['profile','gas_final_daily_fixed_cash_v1'],['rounding','currency_minor_units_to_even_v1'],['evidence','Synthetic review']])root.querySelector('[data-billing='+name+']').value=value;
+  root.querySelector('form').requestSubmit();await tick();const first=!confirm.hidden;
+  already=true;root.querySelector('form').requestSubmit();await tick();const second=!confirm.hidden,reviewHidden=root.querySelector('[data-billing=review]').hidden;confirm.click();await tick();
+  return {first,second,reviewHidden,sent};})()`);
+ assert.deepEqual(result,{first:true,second:false,reviewHidden:true,sent:0});
+}));
+
 test('a handed request winning at acceptance cannot strand the billing form busy',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
  const result=await evaluate(`(async()=>{const {setupGasBilling}=await import('/gas-billing.js');let queued=0;
   const api=async path=>path==='gas/billing/read'?${JSON.stringify(view)}:{previewHash:'reviewed',sourceId:'source',previousId:null,amount:'-300',contribution:'-300',currency:'usd',contractualDueAt:'2021-02-02T00:00:00Z',alreadyDetermined:false};

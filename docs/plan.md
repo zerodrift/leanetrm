@@ -1,12 +1,30 @@
 # Delivery plan and acceptance criteria
 
-D463 adds [issue reports](issue-reports.md): a signed-in person sends a reviewed
+D467 adds [issue reports](issue-reports.md): a signed-in person sends a reviewed
 report to the installation's one configured tracker and receives the issue's
 number and link. Policy revisions, retained requests, single dispatch admission
 and unconfirmed outcomes are implemented with local checks against a synthetic
 tracker. The assistant drafts a report for the person's authorization, and the
 browser has the policy form and a Report an issue dialog. `automatic` submission
 and hosted wiring remain work; `automatic` needs its own decision.
+
+D465 implements [monthly gas bills](gas-monthly-bills.md) for one trade: a bill
+over a complete delivery month's daily determinations and linked adjustment
+notes for later ones, gross, with separate pay and receive totals and no new
+rounding. Billing & corrections reviews and issues them. Counterparty-level
+bills and netting need a typed election on the agreement; a rendered or
+exported document, payment matching and accounting remain separate.
+
+D464 implements [final daily billing of index-priced gas payments](gas-cash-billing.md#indexed-profile-d464),
+on a named daily or monthly index or on point publications:
+one reviewed determination for each payment and gas day from the final accepted
+quantity and the final published fixing plus the booked spread, with the fixing
+retained by foreign key and a corrected fixing billed under its own cause. The
+fixing is selected by knowledge cutoff, without a market close. Qualification is
+recorded in [verification](verification.md#indexed-gas-billing-d464).
+A monthly bill or invoice, automatic indexed billing, right-dependent payments,
+a list of billed days whose fixing was later corrected and reconciliation with
+accrued value remain separate.
 
 D462 adds a desk-specific **Planned workflows** panel and the
 [Scheduling contribution roadmap](scheduling-roadmap.md). Crude parcels,
@@ -2822,8 +2840,10 @@ Arbitrary page controls, generated UI and business-effect walkthrough steps rema
 
 Full operation discovery resolves against one read-local route-metadata snapshot
 (D328), removing repeated grouped-route construction without extending the agent's
-read limit. Other read latency and the security epoch hold described in D245 remain
-separate work; this change is not a general read-performance qualification.
+read limit. Reads and approved commands resolve in routing's collection of the
+application's routes (D466) and no longer rebuild them. Other read latency and the security epoch
+hold described in D245 remain separate work; this change is not a general
+read-performance qualification.
 
 ### Unified catalogue and regional close sessions (D369)
 

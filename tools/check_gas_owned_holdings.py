@@ -1,6 +1,7 @@
 """Gas title, operator claims and surviving commodity loans in owned PostgreSQL."""
 import json
 from uuid import uuid4
+from authority_wait import lock_holder
 
 from check_reference_editing import main
 from preview_fixture import catalogue_fixture, trade_booking, trading_fixture
@@ -241,14 +242,16 @@ def checks(query, manifest, economic_worker=None, *, form_source_counterexamples
     protected_context=capture()
     protected=dict(lotId=stock['id'],businessKey='expired_authority',quantity='0.1',effectiveAt=at)
     before_guard=query(f"SELECT count(*) FROM trading.gas_owned_reservations WHERE catalog_id='{catalog}';")
-    query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '0.5 seconds' WHERE principal_id='{trader}';")
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            blocker=pool.submit(query,"SET application_name='gas_owned_authority_check';BEGIN;SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(1.5);COMMIT;")
+            # The term starts once the lock is held, and the lock is kept until the command has waited for it within the term.
+            blocker=pool.submit(query,lock_holder('gas_owned_authority_check','SELECT pg_advisory_xact_lock(730849102)',
+                f"(SELECT bool_and(granted_to<=clock_timestamp()) FROM security.role_grants WHERE principal_id='{trader}')"))
             deadline=time.monotonic()+3
             while query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='gas_owned_authority_check' AND wait_event='PgSleep');")!='t':
                 assert time.monotonic()<deadline
                 time.sleep(.01)
+            query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '2 seconds' WHERE principal_id='{trader}';")
             rejected(lambda:apply(owned,'reserve',protected,context=protected_context),'gas_owned_denied')
             blocker.result()
     finally:

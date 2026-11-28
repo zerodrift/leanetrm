@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
@@ -26,6 +27,7 @@ static class AssistantWorkspaceChecks
         _=AgentTools.Requested(historyTurn with{SearchHistory=true},historyRequest);
 
         DiscoveryWork();
+        RoutingTableWork().GetAwaiter().GetResult();
         foreach(var page in new[]{"physical_operations","dashboard","crude_setup","vol_surfaces","options","facility_quantities"})
         {
             PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
@@ -201,5 +203,29 @@ static class AssistantWorkspaceChecks
         catch(OperationCanceledException){}
         if(enumerations!=before)throw new Exception("Cancelled discovery read route metadata.");
         Console.WriteLine("PASS assistant discovery: one route snapshot, fresh permissions/endpoints and cancellation before metadata work");
+    }
+
+    // Discovery in a started application builds its routes at most once, however many discoveries follow.
+    static async Task RoutingTableWork()
+    {
+        var builder=WebApplication.CreateBuilder();builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var app=builder.Build();var group=app.MapGroup("/api");
+        var built=0;
+        foreach(var operation in AssistantOperations.Catalog)
+            ((IEndpointConventionBuilder)group.MapMethods(operation.Path,[operation.Method],(HttpContext _)=>Task.CompletedTask)).Add(_=>built++);
+        await app.StartAsync();
+        try
+        {
+            var workspace=new AssistantWorkspace(null!,"api","/api",app.Services,AssistantWorkspace.Routes(app.Services),new HttpContextAccessor());
+            var permissions=AssistantOperations.Catalog.SelectMany(o=>o.Permissions).Distinct().ToArray();
+            var before=built;
+            for(var read=0;read<3;read++)
+                if(!workspace.DiscoverOperations("all",null,permissions,CancellationToken.None).Select(o=>o!["id"]!.GetValue<string>()).SequenceEqual(AssistantOperations.Catalog.Select(o=>o.Id)))
+                    throw new Exception("A started application's routes lost or changed an authorized operation.");
+            if(built-before>AssistantOperations.Catalog.Count)
+                throw new Exception($"Later discoveries rebuilt the application's routes: {built-before} route builds over three discoveries of {AssistantOperations.Catalog.Count} operations.");
+        }
+        finally{await app.StopAsync();}
+        Console.WriteLine("PASS assistant routes: repeated discoveries in a started application resolve every operation and build each route at most once");
     }
 }

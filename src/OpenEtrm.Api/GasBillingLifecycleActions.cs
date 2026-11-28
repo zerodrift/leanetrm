@@ -34,6 +34,9 @@ internal sealed class GasBillingLifecycleActions(PreviewDatabase database) : ILi
             request.Context.BusinessDate != DateOnly.FromDateTime(request.Context.AsOf.UtcDateTime) ||
             string.IsNullOrWhiteSpace(selection.Evidence) || selection.Evidence.Length > 500)
             throw new MarketDataException("gas_billing_input", "Retain the explicit processing clock and native billing scope.");
+        // This action's request names no fixing, so it cannot carry a reviewed indexed determination.
+        if (selection.Billing.Profile == OpenEtrm.MarketData.Gas.GasCashBilling.IndexedImplementation)
+            throw new MarketDataException("gas_billing_profile", "The daily billing action does not bill an indexed payment. Review it in Billing & corrections.");
         if (selection.CorrectionDueAt is {} due) _ = OpenEtrm.MarketData.Trading.TradingInstant.Parse(due, "gas_billing_correction");
         return selection;
     }

@@ -42,6 +42,7 @@ internal static class GasCashBillingChecks
         Reject(() => GasCashBilling.Calculate(terms with { RoundingPolicy = "unknown" }, Final("100"), day.End, null));
         Reject(() => GasCashBilling.Calculate(terms with { Direction = default }, Final("100"), day.End, null));
         Entries(terms, Final, day.End);
+        Indexed(terms, Final, day.End);
         GasBillingReconciliationChecks.Run();
         Console.WriteLine("PASS gas cash: final native-day quantities, independent signs, exact rounding, retained originals and correction deltas");
     }
@@ -77,6 +78,39 @@ internal static class GasCashBillingChecks
         terms = terms with { Price = new(ExactDecimal.Parse("2.5"), new PriceUnit(terms.Price.Unit.Currency, terms.Price.Unit.Quantity, ExactDecimal.Parse("0.1"))) };
         Equal(Bill(entry with { Share = new(1, 2) }, "8").Amount.Amount.ToString(), "1");
         Console.WriteLine("PASS entry billing: exact share, daily band/shortfall, held base, own dates, quote multiplier and one final half-even rounding");
+    }
+    // Expected amounts are worked by hand from quantity x share x (fixing + spread) x direction.
+    static void Indexed(GasBillingTerms terms, Func<string, GasSelectedQuantity> final, DateTimeOffset at)
+    {
+        var unit = terms.Price.Unit; var fixingAt = terms.Day.Start.AddHours(6);
+        UnitPrice P(string value) => new(ExactDecimal.Parse(value), unit);
+        GasBillingFixing Fixing(string value) => new(Guid.NewGuid(), P(value), fixingAt, true);
+        var whole = new GasBillingEntryTerms(terms.Day.Day, terms.Day.Day.AddDays(1), ExactRatio.One, null, new(100, 1));
+        GasBillingCalculation Bill(GasBillingFixing fixing, string spread, string quantity, GasBillingEntryTerms? entry = null,
+            Money? previous = null, string direction = "-1") => GasCashBilling.CalculateEntry(
+            terms with { Price = GasCashBilling.IndexedPrice(fixing, P(spread), fixingAt, at), Direction = ExactDecimal.Parse(direction) },
+            entry ?? whole, final(quantity), at, previous);
+        var original = Bill(Fixing("3.30"), "0.05", "98");
+        Equal(original.Amount.Amount.ToString(), "-328.3");
+        var refixed = Bill(Fixing("3.31"), "0.05", "98", previous: original.Amount);
+        Equal(refixed.Amount.Amount.ToString(), "-329.28");
+        Equal(refixed.Contribution.Amount.ToString(), "-0.98");
+        var requantified = Bill(Fixing("3.31"), "0.05", "100", previous: refixed.Amount);
+        Equal(requantified.Amount.Amount.ToString(), "-336");
+        Equal(requantified.Contribution.Amount.ToString(), "-6.72");
+        var tie = Bill(Fixing("3.105"), "0", "33");
+        Equal(tie.ExactAmount.ToExactString(), "-102.465");
+        Equal(tie.Amount.Amount.ToString(), "-102.46");
+        Equal(Bill(Fixing("3.00"), "0", "80", whole with { Share = new(2, 5) }).Amount.Amount.ToString(), "-96");
+        Equal(Bill(Fixing("3.00"), "-0.25", "80", whole with { Part = QuantityPart.Band(new(3, 10), new(7, 10)) }).Amount.Amount.ToString(), "-110");
+        Equal(Bill(Fixing("-0.10"), "0", "50", direction: "1").Amount.Amount.ToString(), "-5");
+        Reject(() => Bill(Fixing("3.30") with { Final = false }, "0", "98"));
+        Reject(() => Bill(Fixing("3.30") with { ObservationId = Guid.Empty }, "0", "98"));
+        Reject(() => Bill(Fixing("3.30") with { ObservedAt = fixingAt.AddTicks(-10) }, "0", "98"));
+        Reject(() => Bill(Fixing("3.30") with { ObservedAt = at.AddTicks(10) }, "0", "98"));
+        var other = new PriceUnit(unit.Currency, unit.Quantity, ExactDecimal.Parse("0.1"));
+        Reject(() => GasCashBilling.IndexedPrice(Fixing("3.30"), new(ExactDecimal.Parse("0"), other), fixingAt, at));
+        Console.WriteLine("PASS indexed billing: final fixing plus spread, corrected fixing and quantity deltas, share, band, negative price and one half-even rounding");
     }
     static void Equal(string actual, string expected)
     { if (actual != expected) throw new Exception($"Expected {expected}, got {actual}"); }

@@ -3,8 +3,10 @@ from datetime import date, datetime
 from decimal import Decimal, localcontext, ROUND_HALF_EVEN
 from fractions import Fraction
 import json
+import time
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 from preview_client import PreviewClient, initial_frame
 
 
@@ -99,14 +101,28 @@ INSERT INTO security.hosted_sessions(token_digest,principal_id,credential_versio
         denied(lambda:hosted_write(query,statement,cat,ref,owner_identity))
     finally:
         query(f"UPDATE security.reference_catalog_scopes SET access_mode='owner' WHERE(catalog_id,tenant_id,workspace_id)=('{ref}','{tenant}','{workspace}');")
-    # A phase admitted before the sign-in deadline must still roll back at exit.
-    query(f"UPDATE security.hosted_sessions SET expires_at=clock_timestamp()+interval '700 milliseconds' WHERE principal_id='{owner}';")
-    denied(lambda:hosted_write(query,statement+'SELECT pg_sleep(1);',cat,ref,owner_identity))
-    assert query(f"SELECT count(*) FROM ref_data.revisions WHERE id='{marker}';")=='0'
+    # A phase admitted before its sign-in or role grants end must still roll back at exit. After its write the phase
+    # waits for a private lock, kept until it has waited there with that authority live and the authority has ended.
+    # A phase that started late never waits there, which fails the lock holder.
+    def expires_in_flight(table,term):
+        gate=uuid4().int%(1<<63);application='regional_seed_expiry_'+uuid4().hex
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            held=pool.submit(query,lock_holder(application,f'SELECT pg_advisory_xact_lock({gate})',
+                f"(SELECT bool_and({term}<=clock_timestamp()) FROM security.{table} WHERE principal_id='{owner}')"))
+            deadline=time.monotonic()+5
+            while query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{application}' AND wait_event='PgSleep';")!='1':
+                if held.done():held.result()
+                assert time.monotonic()<deadline,'The owned expiry lock was not taken'
+                time.sleep(.02)
+            try:
+                query(f"UPDATE security.{table} SET {term}=clock_timestamp()+interval '2 seconds' WHERE principal_id='{owner}';")
+                denied(lambda:hosted_write(query,statement+f'SELECT pg_advisory_xact_lock({gate});',cat,ref,owner_identity))
+            finally:held.result()
+        assert query(f"SELECT count(*) FROM ref_data.revisions WHERE id='{marker}';")=='0'
+    expires_in_flight('hosted_sessions','expires_at')
     denied(lambda:hosted_write(query,statement,cat,ref,owner_identity))
-    query(f"UPDATE security.hosted_sessions SET expires_at=clock_timestamp()+interval '10 minutes' WHERE principal_id='{owner}';UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '700 milliseconds' WHERE principal_id='{owner}';")
-    denied(lambda:hosted_write(query,statement+'SELECT pg_sleep(1);',cat,ref,owner_identity))
-    assert query(f"SELECT count(*) FROM ref_data.revisions WHERE id='{marker}';")=='0'
+    query(f"UPDATE security.hosted_sessions SET expires_at=clock_timestamp()+interval '10 minutes' WHERE principal_id='{owner}';")
+    expires_in_flight('role_grants','granted_to')
     query(f"UPDATE security.role_grants SET revoked=true WHERE principal_id='{owner}';")
     denied(lambda:install(query,manifest,identity=owner_identity))
     assert int(query('SELECT count(*) FROM ref_data.revisions;'))==int(before)+1

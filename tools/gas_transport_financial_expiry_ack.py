@@ -2,6 +2,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from authority_wait import lock_holder
 from uuid import uuid4
 
 from gas_transport_financial_fixture import literal
@@ -59,7 +60,9 @@ def accepted_expiry(f, closed, rejected):
     actor = f.query("SELECT principal_id FROM security.identity_bindings WHERE subject='trader';")
     temporary, first, successor = (str(uuid4()) for _ in range(3))
     with ThreadPoolExecutor(max_workers=1) as pool:
-        blocker = pool.submit(f.query, "SET application_name='synthetic_expiry_lookup_wait';BEGIN;SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(7);COMMIT;")
+        # The lock is kept until the lookup has waited for it under the first grant and the successor is active.
+        blocker = pool.submit(f.query, lock_holder('synthetic_expiry_lookup_wait', 'SELECT pg_advisory_xact_lock(730849102)',
+            f"(SELECT granted_to<=clock_timestamp() FROM security.role_grants WHERE id='{first}')", f"(SELECT granted_from<=clock_timestamp() FROM security.role_grants WHERE id='{successor}')"))
         timeout = time.monotonic() + 5
         while f.query("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic_expiry_lookup_wait' AND wait_event='PgSleep';") != '1':
             assert time.monotonic() < timeout

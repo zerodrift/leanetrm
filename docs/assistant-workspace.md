@@ -106,8 +106,10 @@ strings. Inputs use `{body, parameters}`, with string query/route parameters.
 There is no arbitrary URL, HTTP client, SQL or execution tool.
 
 Discovery resolves the authorized catalog against one read-local snapshot of the
-application's route metadata (D328). Grouped route sources rebuild endpoints when
-enumerated; reading them once per operation made full discovery repeat that work.
+application's route metadata (D328). Every resolution, in discovery, a read or an
+approved command, uses routing's collection of the application's routes (D466).
+Routing builds it on its first read, where reading the grouped route sources
+built every route on each read.
 Each discovery still checks current permissions and reads the turn's retained
 context. Neither authority nor business data is cached. Cancellation is checked
 before metadata work and between operations; the configured read bound is unchanged.
@@ -122,7 +124,7 @@ before metadata work and between operations; the configured read bound is unchan
 | Interval/delivery data | Source/series catalogs, selected windows, corrections and supported curve/quantity previews |
 | Jobs/infrastructure | Existing directory, job creation/update/control and typed node operations |
 | Administration/AI | Account, provider/model/agent configuration, usage and page guidance |
-| [Issue reports](issue-reports.md#the-assistant) | The person's own reports, and a drafted report for their authorization (D463) |
+| [Issue reports](issue-reports.md#the-assistant) | The person's own reports, and a drafted report for their authorization (D467) |
 
 The browser reports selected retained risk jobs and displayed delivery/interval
 windows when available. Their pointers are re-read through the backend; browser

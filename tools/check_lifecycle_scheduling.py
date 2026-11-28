@@ -188,7 +188,7 @@ def configured(query, manifest, setup):
         assert 'lifecycle_schedule_scope' in str(error),str(error)
     else:raise AssertionError('A scheduled context admitted another command operation identity')
     print('PASS scheduled source-only authority rejects an unrelated command before product execution',flush=True)
-    with successor_grants(query,manifest,'trader','ReadGasOwnedHoldings',issuer=issuer):
+    with successor_grants(query,manifest,'trader','ReadGasOwnedHoldings',issuer=issuer,from_entry=True):
         application='synthetic_lifecycle_epoch_'+uuid4().hex
         with ThreadPoolExecutor(max_workers=2) as pool:
             blocked=pool.submit(query,f"SET application_name='{application}';BEGIN;SELECT 1 FROM security.epoch WHERE id=true FOR UPDATE;SELECT pg_sleep(4);COMMIT;")
