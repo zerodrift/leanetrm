@@ -7633,3 +7633,51 @@ with six busy loops, 60 real short workers gave the earlier sampler the same
 `'0 R'` refusal once and the changed sampler 60 measurements.
 
 Only Linux was observed. The rule adds no state for another system.
+
+## Staging authority that ends under a held operation (2026-11-28)
+
+Checks stage authority that ends while an admitted operation waits by writing a
+short term on the database clock before the operation starts. The operation
+must pass its first guard inside that term; a slow start ends the term first,
+and the check then stops, or passes on a refusal it did not stage. One workspace
+check stopped that way in CI.
+
+`Contexts.expiring` in `tools/assistant_context.py`, used by the model, provider,
+grant and turn checks, armed a three-second role-grant term, or issued a
+two-second request context, before it started its session and warmed it. For a
+role grant it now ends the term by a write once the statement is seen waiting on
+the held lock. The waiting statement holds the security epoch, so the write runs
+with ordinary triggers skipped. That stands in for the clock only because each
+of these rechecks reads the grants again; most of the checks also name the
+statement that refuses. A request
+context still ends by the clock, because its transaction locks its own row; it
+is now issued immediately before it is bound, so only the binding and the guards
+before the wait fall inside its two seconds. Both modes wait until the authority
+has ended rather than for a fixed 3.2 s.
+
+With a 3.5-second delay injected before the session is sent its work, the prior
+helper stops at its first use ("The operation never reached its intended wait")
+and the changed one passes. `--assistant-check` passes its 902 checks before and
+after, in 7 min 40 s and 6 min 32 s on an idle four-core container with
+PostgreSQL 18.7; these are single runs.
+
+Not changed, and why. A write cannot stand in for the clock where the recheck
+compares the clock with a deadline kept at admission. The storage facility
+commit guard does: with a write the command is still refused, by the fresh
+authority read as `facility_quantity_denied`, and the stored-deadline refusal
+`storage_facility_denied` under test is never reached. Set-based read visibility
+(D282) keeps each authority's end the same way, so the asynchronous workbench and
+market date expiry scenarios keep their two- and three-second terms: converted,
+they passed, but by reading through the fresh rechecks beside the kept deadline
+rather than through it.
+
+A reading of every check that writes a term of seconds found 88 further places
+in about 60 files where a separate actor (an HTTP request, a `dotnet` process or
+another database session) must be admitted inside a pre-armed term. They are
+unchanged. The most exposed is the successor-grant helper in
+`tools/check_futures_margin_adoption.py`: a three-second grant with a successor
+starting at the same instant, used at about 25 call sites, eight of which start
+a `dotnet` process as the actor. In roughly a dozen places a late actor is
+refused at its first guard with the code the check expects, so a lost race
+passes without testing the in-flight case. That reading was by inspection and
+was not checked by running each suite under delay.
