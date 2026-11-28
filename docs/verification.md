@@ -2161,16 +2161,31 @@ storage facility, gas owned holdings, park and loan, park custody, transport
 capacity, route and financial, point trader marks, and curve marks through the
 application.
 
-Not changed. Scenarios without a first grant keep their fixed holder; by
-reading, four of those seven operations are refused before they reach the held
-lock, so their check lines claim a wait that does not happen. Single-session
-scenarios that pause inside their own transaction have no holder: the regional
-seed sign-in and role expiry, with 700 ms terms and a broad refusal, still pass
-when started late, and the commit modes of the transport checks leave a short
-window before their successor starts. They could wait on a private lock held
-the same way. In three scenarios the operation waits before its authority is
-first read, by the product's design, so waiting with live grants shows only
-that it started in time.
+Scenarios without a first grant were measured on the unchanged checks. Four
+operations return in about 0.05 s while the lock is still held: the capacity and
+financial producers without entry authority, the financial capacity choice and
+the point producer without import authority. The financial and point operations
+are refused by an entry check the product states, and their checks now assert
+that the lock was still held when the refusal returned. The capacity producer
+is refused early only by the order in which its access is evaluated, so its
+check asserts the refusal and not the order. Three wait the holder's full seven
+or eight seconds: the
+capacity and financial status reads and the point setup read. Their lock is now
+kept until the operation has waited for it and the successor is active.
+
+The regional seed's sign-in and role expiry scenarios ran one hosted write that
+paused for a second under a 700 ms term written beforehand, and accepted any
+refusal. The write now ends by waiting for a private lock held the same way,
+under a two-second term written once that lock is held, so a phase that was
+never admitted fails the check. With a one-second delay injected before the
+write, the prior check passes all 101 checks; with 2.5 s injected, the changed
+one stops with "The authority ended before any session waited".
+
+Not changed. The commit modes of the transport checks pause inside their own
+transaction and leave a short window before their successor starts. In three
+scenarios the operation waits before its authority is first read, by the
+product's design, so waiting with live grants shows only that it started in
+time.
 
 The native volatility-fit admission regression runs with
 `python3 tools/check_vol_surface_admission_expiry.py --pg-bin /path/to/postgres/bin`.

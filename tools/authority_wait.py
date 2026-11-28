@@ -7,7 +7,8 @@ def lock_holder(application, lock, ended, released=None):
     condition, is true. It fails if the authority has ended with no session waiting, if a session first waits when
     `ended` is true or unknown, or after 25 seconds: the operation was then refused or held without its authority,
     which is not the case under test. Any waiting session counts, so `lock` must be one that only the operation takes,
-    and only after its first guard."""
+    and only after its first guard. An operation that enters with no authority has none to end: with `false` for
+    `ended` the holder shows only that a session waited, and `released` must say when it may go on."""
     return (f"SET application_name='{application}';BEGIN;{lock};"
             "DO $wait$DECLARE until_at timestamptz=clock_timestamp()+interval '25 seconds';waited boolean=false;BEGIN LOOP "
             "PERFORM pg_stat_clear_snapshot();"
