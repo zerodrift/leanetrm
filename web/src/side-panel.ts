@@ -103,7 +103,9 @@ export function setupTabs(list:HTMLElement,tabs:readonly (readonly [string,strin
   function choose(id:string,focus:boolean){mark(id);if(focus)buttons.get(id)!.focus();o.select(id);}
   list.setAttribute('role','tablist');list.setAttribute('aria-label',o.label);o.panel.setAttribute('role','tabpanel');o.panel.removeAttribute('aria-label');
   list.onkeydown=event=>{
-    const current=ids.find(id=>buttons.get(id)===event.target),next=current===undefined?null:tabAfterKey(ids,current,event.key);
+    // A tab a caller has hidden is not offered, so the keys move among the tabs that are shown.
+    const shown=ids.filter(id=>!buttons.get(id)!.hidden);
+    const current=shown.find(id=>buttons.get(id)===event.target),next=current===undefined?null:tabAfterKey(shown,current,event.key);
     if(next===null)return;
     event.preventDefault();choose(next,true);
   };
