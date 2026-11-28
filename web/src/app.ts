@@ -94,7 +94,10 @@ import {setupShortcutEditor} from './shortcut-view.js';
 import {apiRefusal,readRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
 import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,curveConfigurationAction,type MarketNavigation,type FrameSummary,type CurveConfiguration} from './market-navigation.js';
-import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
+import {navigationGroups as sidebarGroups,schedulingDesks,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
+import {setupFacilityViews,facilityViewNames,facilityViews,isFacilityView} from './facilities-views.js';
+import {setupSchedulingDesks} from './scheduling-desks.js';
+import {setupSchedulingRoadmap} from './scheduling-roadmap.js';
 import {pagePresentationTarget} from './assistant-walkthroughs.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type TradeShown,type PageState,type PageContext,type Place} from './assistant-pages.js';
@@ -217,7 +220,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  recInventory.sync();structuredPower.sync();deliverySetup.sync();referenceConsole.sync();riskViewsNav.sync();lifecycle.sync();physicalOperations.sync();pointTraderMark.sync();curveMarks.sync();curveWorkspace.sync();facilities.sync();futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();priceSetup.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy||!!curveRead||!!pageRead?.pending));markWorkspaceReady();
+  recInventory.sync();structuredPower.sync();deliverySetup.sync();referenceConsole.sync();riskViewsNav.sync();lifecycle.sync();physicalOperations.sync();pointTraderMark.sync();curveMarks.sync();curveWorkspace.sync();facilities.sync();facilityViewsNav.sync();syncFacilitiesTitle();desks.sync();syncScheduling();futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();priceSetup.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy||!!curveRead||!!pageRead?.pending));markWorkspaceReady();
 
 }
 function renderWorkspaceMode(){
@@ -381,7 +384,8 @@ async function mayLeaveForDialog(notDone:string,move:Move='discards'){
   return false;
 }
 // Runs `work` as an action, once the person has agreed to leave what the page holds. A discarded curve that the work then failed to leave is read again.
-function leaving(work:()=>Promise<void>,move:Move='discards'){void (async()=>{if(busy)return;if(await mayLeave(move))await act(work);})();}
+// Settles when the move has finished or been refused.
+function leaving(work:()=>Promise<void>,move:Move='discards'):Promise<void>{return (async()=>{if(busy)return;if(await mayLeave(move))await act(work);})();}
 function action(name:string,run:()=>Promise<void>){const button=el('button',name);button.disabled=busy;button.type='button';button.onclick=()=>void act(run);return button;}
 function decimalTick(){if(!workspace||!curve||listedCurve().marketType!=='futures')return undefined;return val(row('quote_specifications','code',val(selectedCurve(),'quote_code'),true),'clearing_increment');}
 function table(target:string,headers:string[],rows:(string|HTMLElement)[][],numeric:number[]=[],displayRows?:string[][],onRowActivate?:(index:number)=>void){
@@ -430,11 +434,11 @@ async function setPage(next:string){
   if(page==='lifecycle'&&next!==page)lifecycle.reset();
   if(page==='physical-operations'&&next!==page)physicalOperations.reset();
   page=next;$('curve-marks-page').hidden=next!=='curve-marks';$('rec-inventory-page').hidden=next!=='rec-inventory';$('physical-power-page').hidden=next!=='physical-power';$('lifecycle-page').hidden=next!=='lifecycle';$('physical-operations-page').hidden=next!=='physical-operations';rememberPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,next);$('risk-page').hidden=next!=='risk';$('gas-setup-page').hidden=next!=='gas-setup';$('crude-setup-page').hidden=next!=='crude-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('curve-definitions-page').hidden=next!=='curve-definitions';$('vol-surfaces-page').hidden=next!=='vol-surfaces';$('options-page').hidden=next!=='options';$('jobs-page').hidden=next!=='jobs';$('facilities-page').hidden=next!=='facilities';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next)||usesBusinessDate(next);$('context-toolbar').hidden=!showsDate(next);$('business-date-field').hidden=!usesBusinessDate(next);$<HTMLInputElement>('date-context-on').type=usesBusinessDate(next)?'date':'hidden';$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('price-setup-page').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin'||!can('ManageIdentities');$('ai-page').hidden=next!=='ai';$('access-policy-page').hidden=next!=='admin'||!can('ManageAccess');$('assistant-policy-page').hidden=next!=='ai'||!can('ManageAgents');$('no-access-page').hidden=true;
-  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='rec-inventory'?'REC inventory':next==='physical-power'?'Operating facilities':next==='lifecycle'?'Lifecycle':next==='physical-operations'?'Physical operations':next==='facilities'?'Facilities':next==='gas-setup'||next==='crude-setup'?'Delivery setup':next==='dashboard'?'Dashboard':next==='risk'?'Risk':next==='jobs'?'Jobs':isCurvePage(next)?'Curves & prices':next==='custom-curves'?'Curve builder':next==='curve-definitions'?'Curve definitions':next==='vol-surfaces'?'Vol surfaces':next==='curve-marks'?'Volatility & correlation':next==='options'?'Options':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='parties'?'Entities & counterparties':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='configuration'||next==='schedules'?consoleViewName(next,pageView(next)!):'Reference data');
+  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='rec-inventory'?'REC inventory':next==='physical-power'?'Operating facilities':next==='lifecycle'?'Lifecycle':next==='physical-operations'?deliveriesName():next==='facilities'?facilityViewNames[facilities.view()]:next==='gas-setup'||next==='crude-setup'?'Delivery setup':next==='dashboard'?'Dashboard':next==='risk'?'Risk':next==='jobs'?'Jobs':isCurvePage(next)?'Curves & prices':next==='custom-curves'?'Curve builder':next==='curve-definitions'?'Curve definitions':next==='vol-surfaces'?'Vol surfaces':next==='curve-marks'?'Volatility & correlation':next==='options'?'Options':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='parties'?'Entities & counterparties':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='configuration'||next==='schedules'?consoleViewName(next,pageView(next)!):'Reference data');
   $('page-title').title=$('page-title').textContent??'';
-  for(const name of ['lifecycle','physical-operations','facilities','physical-power','rec-inventory','dashboard','delivery','interval-series','curve-marks','vol-surfaces','options','admin','ai','jobs'])$('nav-'+name).classList.toggle('active',next===name);
+  for(const name of ['lifecycle','physical-operations','physical-power','rec-inventory','dashboard','delivery','interval-series','curve-marks','vol-surfaces','options','admin','ai','jobs'])$('nav-'+name).classList.toggle('active',next===name);
   const inConsole=pageGroup(next)==='Reference Data';
-  riskViewsNav.page(next);deliverySetup.show(next);curveWorkspace.show(next);referenceConsole.show(next,next==='reference'?referenceTable||undefined:undefined,pageView(next));
+  riskViewsNav.page(next);facilityViewsNav.page(next);if(next==='physical-operations'){const held=physicalOperations.pendingDesk();if(held)desks.want(held);}desks.page(schedulingEntry()??next);deliverySetup.show(next);curveWorkspace.show(next);referenceConsole.show(next,next==='reference'?referenceTable||undefined:undefined,pageView(next));
   // Curve builder has the title for its curve.
   $('page-title').classList.toggle('sr-only',next==='custom-curves');$('page-heading-slot').hidden=next!=='custom-curves';
 
@@ -1265,11 +1269,12 @@ $('sidebar-toggle').onclick=()=>{
  else{prefs.sidebarCollapsed=!prefs.sidebarCollapsed;persist();}
  renderLayout();
 };
+// Close before the destination handles the click: it may disable its control or focus a leave question.
 $('sidebar-menus').addEventListener('click',event=>{
- if(compactNavigation.matches&&mobileMenuOpen&&(event.target as Element).closest('button.nav-item:not(:disabled)')){
+ if(compactNavigation.matches&&mobileMenuOpen&&(event.target as Element).closest('button.nav-item:not(:disabled),button.nav-desk:not(:disabled)')){
   mobileMenuOpen=false;renderLayout();$('sidebar-toggle').focus({preventScroll:true});
  }
-});
+},true);
 $('library-toggle').onclick=()=>{if(busy)return;prefs.libraryCollapsed=!prefs.libraryCollapsed;renderLayout();persist();};
 for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||sidebarIsCollapsed())return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
 function profileError(message=''){text('profile-error',message);$('profile-error').hidden=!message;}
@@ -1303,13 +1308,14 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
   viewHistory.length=0;inspectedContexts.clear();
+  schedulingRoadmap.show(null);
   cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;readClient.reset();
   closeConventionDefaults.invalidate();
   gasLocations.reset();$('gas-locations-page').hidden=true;
   parkLoan.reset();$('park-loan-page').hidden=true;
   transportTicket.reset();$('transport-page').hidden=true;
   pointTraderMark.reset();curveMarks.reset();$('curve-marks-page').hidden=true;
-  recInventory.reset();$('rec-inventory-page').hidden=true;structuredPower.reset();$('physical-power-page').hidden=true;lifecycle.reset();$('lifecycle-page').hidden=true;physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset(true);$('vol-surfaces-page').hidden=true;optionChains.reset();$('options-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
+  recInventory.reset();$('rec-inventory-page').hidden=true;structuredPower.reset();$('physical-power-page').hidden=true;lifecycle.reset();$('lifecycle-page').hidden=true;physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset(true);$('vol-surfaces-page').hidden=true;optionChains.reset();$('options-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();facilityViewsNav.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
 
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();$('curve-definitions-page').hidden=true;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
   $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
@@ -1324,8 +1330,10 @@ async function loadIdentity(initialAccess?:unknown){
   const read=can('ReadMarketData'),author=read&&(can('WriteMarketDefinitions')||can('SealMarketDefinitions'));
   for(const group of sidebarGroups){
     for(const page of group.pages)$('nav-'+page).hidden=!pageAvailable(page,permissions);
-    groupNode(group.id).hidden=group.pages.every(page=>$('nav-'+page).hidden);
+    groupNode(group.id).hidden=!group.pages.some(page=>pageAvailable(page,permissions));
   }
+  // Scheduling then lists the entries of one desk.
+  desks.start();
   $('schedule-inspector').hidden=true;
   const first=openedLink&&pageAvailable(openedLink.page,permissions)?openedLink.page:restoredPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,permissions)??firstPage(permissions);
   // The newest close is chosen between the directory and the first page, which then reads it. A historical view the session
@@ -1416,13 +1424,33 @@ const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,p
 const lifecycle=setupLifecycle($('lifecycle-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,historical:()=>!!historicalContext(),changed:()=>{syncUnloadQuestion();assistant.sync();},committed:()=>{futures.financialCommitted();riskJobs.financialChanged();},
  context:()=>{if(contextDirty)throw Error('Apply the changed header context first.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?retainedKnowledge(retained):{})};}});
+// Whether a physical request still unconfirmed on another desk holds Trade deliveries: its status and retry controls belong with
+// that desk's trades.
+function deliveriesHeld(desk:string){
+  const held=physicalOperations.pendingDesk();return held!==null&&held!==desk;
+}
+function explainDeliveriesHeld(){
+  notice('Check or retry the retained physical request before opening another desk’s deliveries.');
+}
+// An exact delivery opened from another page, on its trade's desk. A held desk is explained here, before this page is left.
+async function openNativeDelivery(target:Parameters<typeof physicalOperations.open>[0]){
+  if(busy)return;
+  const desk=({physical_gas:'gas',physical_crude:'crude'} as const)[target.instrumentType];
+  if(deliveriesHeld(desk)){explainDeliveriesHeld();return;}
+  if(!await mayLeave('page'))return;
+  await act(async()=>{
+    if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');
+    desks.want(desk);await setPage('physical-operations');await physicalOperations.open(target);
+  });
+}
 const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,changed:()=>{syncUnloadQuestion();assistant.sync();},
+ desk:()=>{const desk=desks.current();if(desk!=='gas'&&desk!=='crude'&&desk!=='lng')throw Error('Choose a desk that lists trade deliveries.');return desk;},
  context:()=>{if(contextDirty)throw Error('Apply the changed header context before reading physical operations.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?retainedKnowledge(retained):{})};}});
 const facilities=setupFacilities({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,
  nominationContext:()=>!contextDirty&&!historicalContext()&&select('snapshot').value?{snapshotId:select('snapshot').value,convention:'physical_gas_fixed_quantity_v4',knowledgeMode:'current',contextId:null}:null,
  nativeDeliveryReason:()=>contextDirty?'Apply the changed context before opening native delivery operations.':!select('snapshot').value?'Choose a financial close in the Blotter before opening native delivery operations.':null,
- openNativeDelivery:async target=>{if(busy||!await mayLeave('page'))return;await act(async()=>{if(contextDirty||!select('snapshot').value)throw Error('Apply an explicit financial close before opening native delivery operations.');await setPage('physical-operations');await physicalOperations.open(target);});},
+ openNativeDelivery,
  context:()=>{if(contextDirty)throw Error('Apply the changed context before reading facilities.');return {effectiveOn:$<HTMLInputElement>('date-context-on').value,knowledgeMode:historicalContext()?'retained':'current',retained:historicalContext()??null,convention:'facility_business_date_end_utc_v1'};},
  changed:()=>syncUnloadQuestion(),tradeInspection:()=>select('snapshot').value?null:'Choose a market close in the Blotter before opening trades. Facility quantities do not select a price close.',openTrade:async(id,revision)=>{if(!await mayLeave())return;await act(async()=>{await setPage('futures');await futures.load();await futures.openTrade(id,'physical_gas',revision);});}});
 const pointTraderMark=setupPointTraderMark($('point-trader-mark'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
@@ -1788,9 +1816,35 @@ $('nav-new-trade').onclick=()=>{
   },contextDirty?'discards':'page');
 };
 const readsContext=['rec-inventory','physical-power','lifecycle','physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','curve-definitions','custom-curves','vol-surfaces','curve-marks','options','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
-const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
+// `arrive` runs as the move begins, after its leave question is answered: a view or desk chosen with the move is set there.
+const navigate=(next:string,arrive?:()=>void)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();arrive?.();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
 const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];syncControls();},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
-for(const name of ['lifecycle','physical-operations','facilities','physical-power','rec-inventory','dashboard','vol-surfaces','curve-marks','options','delivery','interval-series','jobs','admin','ai','futures'])
+const facilityViewsNav=setupFacilityViews({view:()=>facilities.view(),choose:view=>facilities.chooseView(view),prepare:view=>facilities.prepareView(view),open:arrive=>navigate('facilities',arrive)(),onPage:()=>page==='facilities',busy:()=>busy,
+ available:view=>pageAvailable(view,permissions)&&facilities.viewAvailable(view),
+ // Arriving without a chosen entry, such as on reload: a view of the desk shown, when the shown section is not one of that desk's.
+ fallback:()=>{const desk=schedulingDesks.find(d=>d.id===desks.current());return desk&&!desk.pages.includes(facilities.view())?facilityViews.find(view=>desk.pages.includes(view)&&facilities.viewAvailable(view)):undefined;}});
+// The Scheduling entry the app shows, or null on a page outside Scheduling or while that page is not shown, as after access ends.
+const schedulingEntry=()=>(page==='facilities'||page==='physical-operations'||page==='rec-inventory')&&!$(page+'-page').hidden?page==='facilities'?facilities.view():page:null;
+const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administrationScope+':'+exampleId+':'+currentProfile,storage:()=>sessionStorage,open:(entry,arrive)=>isFacilityView(entry)?facilityViewsNav.open(entry,arrive):navigate(entry,arrive)(),busy:()=>busy,
+ // An unconfirmed physical request keeps Trade deliveries on its own desk until it is checked or retried. Another desk still opens
+ // on an entry of its own that is not Trade deliveries.
+ may:(desk,entry)=>entry!=='physical-operations'||!deliveriesHeld(desk),refuse:explainDeliveriesHeld});
+// Trade deliveries is Cargoes on the LNG desk. The eyebrow names the desk beside the group.
+const deliveriesName=()=>desks.current()==='lng'?'Cargoes':'Trade deliveries';
+const schedulingRoadmap=setupSchedulingRoadmap($('scheduling-roadmap'));
+function syncScheduling(){
+  const entry=schedulingEntry();if(entry)desks.follow(entry);
+  schedulingRoadmap.show(entry?desks.current():null);
+  const name=deliveriesName(),nav=$('nav-physical-operations');
+  if(nav.title!==name){nav.title=name;nav.setAttribute('aria-label',name);nav.querySelector('.nav-text')!.textContent=name;}
+  if(!entry)return;
+  if(entry==='physical-operations'&&$('page-title').textContent!==name){text('page-title',name);$('page-title').title=name;}
+  const section=(pageGroup(page)+(desks.label()?' · '+desks.label():'')).toUpperCase();
+  if($('page-section').textContent!==section)text('page-section',section);
+}
+// Facilities is one page: its title is the view its shown section belongs to, and follows a section opened from anywhere.
+function syncFacilitiesTitle(){if(page!=='facilities'||$('facilities-page').hidden)return;const name=facilityViewNames[facilities.view()];if($('page-title').textContent!==name){text('page-title',name);$('page-title').title=name;}}
+for(const name of ['lifecycle','physical-operations','physical-power','rec-inventory','dashboard','vol-surfaces','curve-marks','options','delivery','interval-series','jobs','admin','ai','futures'])
 
   $('nav-'+name).onclick=navigate(name);
 // Reference Data reopens on the last entry used, or on the first this account has.
@@ -2015,7 +2069,9 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
     if(step.kind==='go'){
       // A ticket is opened from the Blotter's own button where the Blotter is shown, and from New trade's sidebar entry anywhere else.
       const id=step.target.page.startsWith('blotter_new_')?(page==='futures'&&!futures.entry()?'futures-new':'nav-new-trade'):step.target.page.startsWith('blotter')?'nav-futures':'nav-'+webPage(step.target.page);
-      const control=$(id);return control?.getClientRects().length&&!control.closest('[hidden]')?control:null;
+      const control=$(id);if(control?.getClientRects().length&&!control.closest('[hidden]'))return control;
+      // A Scheduling entry of another desk is reached through that desk's control.
+      const chip=id.startsWith('nav-')?desks.chip(id.slice(4)):null;return chip?.getClientRects().length&&!chip.closest('[hidden]')?chip:null;
     }
     return page==='futures'?futures.presentationLocate(step):pagePresentationTarget(main);
   },

@@ -18,6 +18,24 @@ A monthly bill or invoice, automatic indexed billing, right-dependent payments,
 a list of billed days whose fixing was later corrected and reconciliation with
 accrued value remain separate.
 
+D462 adds a desk-specific **Planned workflows** panel and the
+[Scheduling contribution roadmap](scheduling-roadmap.md). Crude parcels,
+pipeline movements, tank inventory across trades, shipping and time charters
+are explicitly TBD, alongside the listed Gas, Power and LNG gaps. These are
+contribution areas; their operating and financial contracts remain to be designed
+and implemented. Desk buttons fit one row and Scheduling labels wrap in the rail.
+
+D461 lists [Scheduling one desk at a time](physical-workspace.md#scheduling-desks-d461):
+Gas, Power, Crude or LNG, each with entries that are views of the existing
+Facilities and Physical operations pages. Lifecycle and Operating facilities are
+Trading pages. The physical directory lists one desk's trades on request.
+Left for later: opening a Side and day's delivery work from the gas day
+position, the gas stage names, a crude position across trades, the
+installation's enabled desks, a Power scheduling entry beyond REC inventory,
+and back-navigation to Trades and volumes or the position view. The designs are
+[Scheduling by desk](superpowers/specs/2026-11-27-scheduling-workspace-design.md)
+and [product scope and desks](superpowers/specs/2026-11-27-product-scope-and-desks-design.md).
+
 D459 implements [daily gas entry billing and scoped processing](gas-cash-billing.md):
 retained shares, daily bands/shortfalls and payment dates; exact reconciliation;
 gas-native one-off lifecycle work; and bounded recurring book/date assessment

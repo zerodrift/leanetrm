@@ -2,6 +2,7 @@ import {idle} from './owned-browser.mjs';
 import {copyFile,mkdtemp} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {run as schedulingRoadmap} from './scheduling-roadmap.mjs';
 
 export async function openPhysical({click,evaluate,wait},page){
  if(page==='facilities')await click('#nav-facilities');
@@ -30,4 +31,5 @@ export async function run(a){
  await capture('physical-workspace-mobile');
  await persona('viewer');await click('#nav-delivery-setup');
  await check('delivery readers retain setup without receiving complete-pool access',"!document.querySelector('#physical-commodity').hidden&&!document.querySelector('#nav-gas-setup').hidden&&!document.querySelector('#nav-crude-setup').hidden&&document.querySelector('#nav-facilities').hidden");
+ await schedulingRoadmap(a);
 }
