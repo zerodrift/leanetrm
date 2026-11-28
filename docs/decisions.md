@@ -8275,3 +8275,53 @@ separate consumers. The Billing & corrections tab reviews and issues these
 documents; it draws the reads and computes no amount. See
 [the design](superpowers/specs/2026-11-28-gas-monthly-bill-design.md) and
 [the contract](gas-monthly-bills.md).
+
+## D465 — The schema fingerprint covers the dumped schema, not the dump's versions
+
+Decided by the owner on 2026-11-27. The updater admits a release only when the
+fingerprint of the database's `pg_dump --schema-only` output equals the
+operator's recorded `schemaSha256` (D135). The dump's header names the server
+version and the `pg_dump` version. Moving a fully migrated disposable database
+from the pinned 18.6 image to the 18.7 image changed those two lines and the
+dump's random `\restrict` key, and nothing else. The key was already left out,
+so the two version lines alone changed the fingerprint. A database patch
+release therefore quarantined every head until the operator recorded the
+fingerprint again, although the schema was the same.
+
+The fingerprint is now the SHA-256 of the schema between the header and the
+closing key. The whole dump must have the form `pg_dump` writes: its banner,
+one `\restrict` key, the two version lines, the schema, and the same key
+closing the dump. The key and the version lines are left out only in those
+positions. The same text anywhere inside the schema is hashed, because there it
+can be part of an object's definition. The earlier function removed every line
+that began with `\restrict` or `\unrestrict`, so such a line in a function body
+could change without changing the fingerprint; it no longer can.
+
+A dump in any other form is refused with a release error: an empty or
+truncated dump, text before the header or after the closing key, a missing
+line, or another key at the end. This applies when the fingerprint is recorded
+as much as when it is checked, so a baseline cannot be taken from a form whose
+versions are still hashed. The system identifier, commit timestamp tracking,
+UTC setting, migration inventory and Compose hash are checked as before.
+
+A patch release that changes only the header no longer changes the
+fingerprint. One that changes the dumped schema's text, or the dump's form,
+still stops for operator review. The updater has no other check of the
+database's release: the Compose hash covers the installed file, and the
+database container is the operator's to recreate (see
+[Database patch image](hosted-pilot.md#database-patch-image-postgresql-187)).
+Another major release needs another data directory, whose system identifier
+differs from the baseline's; that path was not exercised for this decision.
+
+A `schemaSha256` recorded by an earlier `deploy_release.py` matches no dump
+under this one. The installed deployer is never replaced by a release, so the
+operator who installs this one records the fingerprint again in the same step,
+with the timer stopped. Until then a poll quarantines the head it tries, and
+`--recover` refuses.
+
+Rejected: accepting a fingerprint in either form, which keeps the
+version-dependent comparison alive inside an admission gate; removing every line
+that reads like a version line or a key, which hides text inside definitions;
+hashing an unrecognized dump whole, which lets a baseline be recorded from it
+silently; and normalizing more of the dump, for which no difference has been
+observed.

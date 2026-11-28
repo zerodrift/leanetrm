@@ -48,7 +48,10 @@ def measure_worker(command, cwd, env, timeout):
             # process is exiting: its pages can already be gone before waitpid is ready.
             exiting = rss == 0 and re.fullmatch(r'[?IRSTUZ][+<>AELNSsVWX]*', state) and (
                 state.startswith('Z') or 'E' in state[1:])
-            if sample.returncode or rss is None or (rss == 0 and not exiting):
+            # A started process has no resident pages until it first runs: Linux
+            # reports it runnable (R) or waiting on its image (D).
+            starting = rss == 0 and first is None and state in ('R', 'D')
+            if sample.returncode or rss is None or (rss == 0 and not exiting and not starting):
                 raise RuntimeError(f'Invalid worker RSS sample for PID {process.pid}: '
                                    f'ps status {sample.returncode}, reading {reading!r}.')
             if rss > 0:
