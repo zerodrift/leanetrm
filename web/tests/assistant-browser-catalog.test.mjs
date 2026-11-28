@@ -7,6 +7,5 @@ test('owned assistant browser representatives cover each labeled page with its e
   const cases=assistantPageCases(),expected=cases.map(([page])=>page).sort();
   assert.equal(new Set(expected).size,expected.length,'each admitted page needs one representative');
   for(const [page,state] of cases)assert.equal(pageReport(state).page,page,JSON.stringify(state));
-  // The retained Contract definitions entry navigates to Date rules and has no current UI representative.
-  assert.deepEqual(expected,reportedPages.filter(page=>page!=='contract_definitions').sort());
+  assert.deepEqual(expected,reportedPages.toSorted());
 });

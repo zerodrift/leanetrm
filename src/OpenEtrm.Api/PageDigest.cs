@@ -193,9 +193,10 @@ public sealed partial class AgentTools
             await database.WithAgent(turn.Agent,turn.ReadLimit,[AssistantOperations.Permission],instant=>at=instant,(_,_)=>Task.FromResult(true),ct);
             access=[..access.Concat(await workspace.SourceAccess(turn,ct)).Distinct()];
             var page=turn.PageReport.GetProperty("page").GetString()!;
-            DigestContent digest;JsonArray? screens=null;string[] readPages=[page];
+            DigestContent digest;JsonArray? screens=null;string[] readPages=[page];var coverage="data";
             if(arguments.Mode=="controls")
             {
+                coverage="controls";
                 screens=await workspace.PresentationPages(turn,ct);
                 readPages=screens.Select(s=>s!["page"]!.GetValue<string>()).ToArray();
                 var available=screens.Where(s=>PageReports.Opens(s!["page"]!.GetValue<string>())&&s["operations"]!.AsArray().Count>0&&turn.Pin.BusinessDate is null)
@@ -272,10 +273,11 @@ public sealed partial class AgentTools
             else
             {
                 // Pages without an executable digest projection disclose pointers, never invented page values.
+                coverage="identity_and_selection";
                 digest=new(PageDigest.Bounded([PageDigest.Header(page,turn.Pin),"Selection: "+turn.PageReport.GetProperty("selection").GetRawText()]),[],2);
             }
             var digestTargets=digest.Targets.Select((target,i)=>new IssuedTarget(NavigationTargets.Handle(targets.Next+i),target)).ToImmutableArray();
-            var digestValue=new JsonObject{["text"]=digest.Text,["presentation"]=WalkthroughPlans.Capabilities(page),["targets"]=new JsonArray([..digestTargets.Select(i=>(JsonNode?)new JsonObject{["handle"]=i.Handle,["label"]=i.Target.Label})])};
+            var digestValue=new JsonObject{["text"]=digest.Text,["pageStateSource"]="question",["coverage"]=coverage,["presentation"]=WalkthroughPlans.Capabilities(page),["targets"]=new JsonArray([..digestTargets.Select(i=>(JsonNode?)new JsonObject{["handle"]=i.Handle,["label"]=i.Target.Label})])};
             if(screens is not null)digestValue["screens"]=screens;
             var envelope=new JsonObject{["operation"]="workspace.digest_v1",["context"]=new JsonObject{["knowledge"]=turn.Pin.Operational?"current_operations":turn.Pin.Working?"working_data":"retained",["contextId"]=turn.Pin.ContextId==Guid.Empty?null:turn.Pin.ContextId.ToString(),["cutoff"]=turn.Pin.Resolved?turn.Pin.Cutoff.ToString("O",CultureInfo.InvariantCulture):null},["amountDisplay"]=ToolAmountDisplay.Implementation,["result"]=digestValue};
             return Bounded(envelope,digest.Rows,turn.OutputLimits) is {} content?Step(null,content,ToolStepEnd.Result) with{ReadPages=[..readPages],ReadFocus=arguments.Mode=="overview"&&PageReports.DigestView(turn.PageReport) is not null&&PageFocus.From(turn.PageReport)?.PivotCell is not null?turn.PageReport.GetProperty("focus").Clone():null,Issued=digestTargets}:throw new ToolRefusal("result_too_large");

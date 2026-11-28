@@ -428,6 +428,10 @@ def main():
         operating_predecessors=None
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.assistant_workspace_check and migration.name=='0415_assistant_page_identities.sql':
+                from check_fact_anchor_upgrade import run_checks as check_assistant_page_upgrade
+                check_assistant_page_upgrade(query,migration,number='0415',guard='assistant_page_identity_upgrade',
+                                             signatures=('assistant.is_prompt_page(text)',))
             if args.gas_swing_check and migration.name[:4] in ('0403','0404','0405'):
                 swing_chain.append(migration)
                 continue
