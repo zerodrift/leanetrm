@@ -131,21 +131,18 @@ class Contexts:
                  admission='security.use_context'):
         """Runs `statement` directly as the person `subject`, preview administrator by default, bound by
         `admission`, while another session holds `lock`, until their role grants that `grants` selects
-        (`expiry` 'grant') or their request context ('context') have expired. `warm` runs first in the
-        same session, before the lock is taken, so a first-use wait such as compiling a function lands
-        elsewhere. `held` names a (relation, lock mode) the session must already hold once it waits,
-        proving where it waits. Returns the statement's verbose error output, or None if it succeeded."""
+        (`expiry` 'grant') or their request context ('context') have expired. The grants end by a write
+        once the statement is seen waiting. A context ends by the clock, as its transaction locks its
+        row: it is issued last, so only its binding and the guards before the wait fall inside its term.
+        `warm` runs first in the same session, before the lock is taken, so a first-use wait such as
+        compiling a function lands elsewhere. `held` names a (relation, lock mode) the session must
+        already hold once it waits, proving where it waits. Returns the statement's verbose error
+        output, or None if it succeeded."""
         principal = self.query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{ISSUER}' AND subject='{subject}';")
         saved = json.loads(self.query(f"SELECT json_agg(json_build_object('id',id,'until',granted_to)) FROM security.role_grants "
                                       f"WHERE principal_id='{principal}';"))
         pending = None
         try:
-            if expiry == 'grant':
-                self.query("UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '3 seconds' "
-                           f"WHERE principal_id='{principal}' AND ({grants});")
-            token = self.query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-                               f"'{ISSUER}','{subject}','human_interactive','{self.tenant}','{self.workspace}',NULL,'preview_runtime',"
-                               f"{2 if expiry == 'context' else 60});")
             application = 'synthetic-expiry-' + uuid4().hex
             pending = subprocess.Popen([*psql, '--set=VERBOSITY=verbose'], env={**environment, 'PGAPPNAME': application},
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -155,6 +152,9 @@ class Contexts:
                     assert pending.poll() is None, pending.stderr.read()
 
             def stalled():
+                token = self.query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
+                                   f"'{ISSUER}','{subject}','human_interactive','{self.tenant}','{self.workspace}',NULL,'preview_runtime',"
+                                   f"{2 if expiry == 'context' else 60});")
                 pending.stdin.write(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT {admission}('{token}');{statement}COMMIT;")
                 pending.stdin.close(); pending.stdin = None
                 deadline = time.monotonic() + 4
@@ -165,10 +165,20 @@ class Contexts:
                     assert self.query("SELECT EXISTS(SELECT 1 FROM pg_locks l JOIN pg_stat_activity a USING(pid) "
                                       f"WHERE a.application_name='{application}' AND l.relation='{held[0]}'::regclass "
                                       f"AND l.mode='{held[1]}' AND l.granted);") == 't', 'The operation waits before its intended point.'
-                time.sleep(3.2)
+                if expiry == 'grant':
+                    # The write stands in for the clock only because these rechecks read the grants again; one that
+                    # compares the clock with a deadline kept at admission would not see it. The waiting statement
+                    # holds the epoch, which admits no control change, so the write skips the triggers, among them
+                    # the one that advances the epoch. Its instant follows the statement's start, so a recheck that
+                    # read transaction time would admit the statement and fail the check.
+                    self.query("BEGIN;SET LOCAL session_replication_role=replica;UPDATE security.role_grants "
+                               f"SET granted_to=clock_timestamp() WHERE principal_id='{principal}' AND ({grants});COMMIT;")
                 expired = (f"SELECT bool_and(granted_to<clock_timestamp()) FROM security.role_grants WHERE principal_id='{principal}' AND ({grants});"
                            if expiry == 'grant' else f"SELECT expires_at<clock_timestamp() FROM security.request_contexts WHERE id='{token}';")
-                assert self.query(expired) == 't', 'The synthetic authority must expire before the lock is released.'
+                deadline = time.monotonic() + 4
+                while self.query(expired) != 't':
+                    assert time.monotonic() < deadline, 'The synthetic authority must expire before the lock is released.'
+                    time.sleep(.05)
             holding(psql, environment, lock, stalled)
             _, errors = pending.communicate(timeout=10)
             return errors if pending.returncode else None
