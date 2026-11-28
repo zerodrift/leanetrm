@@ -63,5 +63,10 @@ and [delivery plan](docs/plan.md). Start new behavior and bug fixes with a
 meaningful failing behavior check, and run the relevant
 [verification checks](docs/verification.md).
 
+For a small, concrete operating contribution, start with the
+[Scheduling workflow roadmap](docs/scheduling-roadmap.md). It distinguishes
+working features from TBD areas, including crude parcels, pipeline movements
+and shipping. Bring a synthetic example and scope one workflow at a time.
+
 Maintainers can follow the [DCO and agreement setup instructions](docs/contributing-setup.md)
 to configure signing checks and retain core agreement records.

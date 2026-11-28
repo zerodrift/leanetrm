@@ -288,7 +288,10 @@ pagination. Missing held metadata refuses the directory rather than erasing the
 instrument. Gas has a four-stage workflow and a separate billing tab. Crude reuses
 its existing certified receipt/inventory/dispatch/invoice/payment workflow. LNG
 conventions are inspectable; its operational workflow and unsupported commodity
-families are visibly TBD. Facilities & delivery retains facility setup and shared
+families are unimplemented. The desk's **Planned workflows** panel names its
+TBD operations and points contributors to the
+[installer and contributor guide](scheduling-roadmap.md) (D462).
+Facilities & delivery retains facility setup and shared
 quantity allocation scopes.
 
 The workspace owns one actor-scoped retained native command, separate from its

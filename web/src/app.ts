@@ -97,6 +97,7 @@ import {validateMarketNavigation,navigationGroups,navigationCategories,navigatio
 import {navigationGroups as sidebarGroups,schedulingDesks,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
 import {setupFacilityViews,facilityViewNames,facilityViews,isFacilityView} from './facilities-views.js';
 import {setupSchedulingDesks} from './scheduling-desks.js';
+import {setupSchedulingRoadmap} from './scheduling-roadmap.js';
 import {pagePresentationTarget} from './assistant-walkthroughs.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type TradeShown,type PageState,type PageContext,type Place} from './assistant-pages.js';
@@ -1268,11 +1269,12 @@ $('sidebar-toggle').onclick=()=>{
  else{prefs.sidebarCollapsed=!prefs.sidebarCollapsed;persist();}
  renderLayout();
 };
+// Close before the destination handles the click: it may disable its control or focus a leave question.
 $('sidebar-menus').addEventListener('click',event=>{
- if(compactNavigation.matches&&mobileMenuOpen&&(event.target as Element).closest('button.nav-item:not(:disabled)')){
+ if(compactNavigation.matches&&mobileMenuOpen&&(event.target as Element).closest('button.nav-item:not(:disabled),button.nav-desk:not(:disabled)')){
   mobileMenuOpen=false;renderLayout();$('sidebar-toggle').focus({preventScroll:true});
  }
-});
+},true);
 $('library-toggle').onclick=()=>{if(busy)return;prefs.libraryCollapsed=!prefs.libraryCollapsed;renderLayout();persist();};
 for(const {id} of sidebarGroups)groupNode(id).ontoggle=()=>{if(!currentProfile||sidebarIsCollapsed())return;const closed=prefs.collapsedMenus.includes(id),open=groupNode(id).open;if(closed===!open)return;prefs.collapsedMenus=open?prefs.collapsedMenus.filter(k=>k!==id):[...prefs.collapsedMenus,id];persist();};
 function profileError(message=''){text('profile-error',message);$('profile-error').hidden=!message;}
@@ -1306,6 +1308,7 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
   viewHistory.length=0;inspectedContexts.clear();
+  schedulingRoadmap.show(null);
   cancelCurveRead();pageRead?.controller.abort();pageRead=undefined;readClient.reset();
   closeConventionDefaults.invalidate();
   gasLocations.reset();$('gas-locations-page').hidden=true;
@@ -1828,8 +1831,10 @@ const desks=setupSchedulingDesks({permissions:()=>permissions,owner:()=>administ
  may:(desk,entry)=>entry!=='physical-operations'||!deliveriesHeld(desk),refuse:explainDeliveriesHeld});
 // Trade deliveries is Cargoes on the LNG desk. The eyebrow names the desk beside the group.
 const deliveriesName=()=>desks.current()==='lng'?'Cargoes':'Trade deliveries';
+const schedulingRoadmap=setupSchedulingRoadmap($('scheduling-roadmap'));
 function syncScheduling(){
   const entry=schedulingEntry();if(entry)desks.follow(entry);
+  schedulingRoadmap.show(entry?desks.current():null);
   const name=deliveriesName(),nav=$('nav-physical-operations');
   if(nav.title!==name){nav.title=name;nav.setAttribute('aria-label',name);nav.querySelector('.nav-text')!.textContent=name;}
   if(!entry)return;

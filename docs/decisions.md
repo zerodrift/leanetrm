@@ -8143,3 +8143,31 @@ rename the gas delivery stages, read a crude position across trades, restore
 Trades and volumes or the position view on back-navigation, or let an
 installation choose its desks. The gas and power product scope and the
 installation's enabled desks are proposed separately and are not decided here.
+
+## D462 — Show planned Scheduling workflows by desk
+
+Each Scheduling page offers a collapsed Planned workflows panel for the desk
+shown. It describes missing workflows, labels each TBD and gives a contributor
+a starting point. Crude lists cargo parcels and liftings, pipeline movements,
+tank inventory and blending across trades, voyages and freight, time charters,
+laytime and demurrage, and rail and truck movements. LNG lists cargo actuals and
+reconciliation, terminal operations and the three shipping areas. Gas lists
+pipeline connections and storage statements. Power lists schedules and dispatch
+and transmission scheduling. The installer and contributor contract is recorded
+in the [Scheduling roadmap](scheduling-roadmap.md).
+
+These are descriptions of unimplemented workflows, with no committed delivery
+dates. They are not pages, disabled operations or installation capabilities.
+Opening the panel performs no business read or write. It follows the desk only
+after the existing guarded navigation changes the view, and is hidden outside
+Scheduling or when access to the page ends. Existing page identifiers,
+permissions, assistant operations and financial behavior are unchanged.
+
+This extends D461's presentation. The generic Additional workflows line is
+replaced by the desk's explicit gaps. The four desk controls fit one row and
+Scheduling labels wrap rather than truncate. On a phone the menu closes before
+the chosen entry handles its click, preserving a leave question's focus and
+keyboard cancellation. It does not implement marine
+operations, a pipeline movement ledger, a crude position across trades, power
+scheduling or a setting to enable desks. Each such operation still needs its
+own supported contract, synthetic acceptance examples and qualification.

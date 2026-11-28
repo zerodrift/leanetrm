@@ -29,9 +29,9 @@ class Source extends EventTarget{
 test('permission refresh retires pending reads before temporarily clearing account context',async()=>{
  const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{},replaceChildren(){},closest(){return this;}});return nodes.get(id);};
  const noop=()=>{},curveController=new AbortController(),pageController=new AbortController();
- let locationResets=0,parkLoanResets=0,transportResets=0,pointResets=0,markResets=0;const productResets=[];
+ let locationResets=0,parkLoanResets=0,transportResets=0,pointResets=0,markResets=0,roadmapShown='gas';const productResets=[];
  const context={currentProfile:'synthetic-reader',viewHistory:[{}],inspectedContexts:new Map([['old',{}]]),navigation:{context:{contextId:'synthetic-retained-context',knownThrough:4}},
-  permissions:['ReadMarketData'],marketGeneration:0,curveRead:curveController,pageRead:{controller:pageController},
+  permissions:['ReadMarketData'],marketGeneration:0,curveRead:curveController,pageRead:{controller:pageController},schedulingRoadmap:{show:desk=>{roadmapShown=desk;}},
   $:node,select:node,choose:noop,clearPrices:noop,clearReference:noop,setCurveNames:noop,renderBlotterViews:noop,scheduleWorkspace:undefined,
   gasLocations:{reset(){locationResets++;}},parkLoan:{reset(){parkLoanResets++;}},transportTicket:{reset(){transportResets++;}},pointTraderMark:{reset(){pointResets++;}},curveMarks:{reset(){markResets++;}}};
  for(const name of ['recInventory','structuredPower','closeConventionDefaults','lifecycle','physicalOperations','deliverySetup','referenceConsole','curveWorkspace','customCurves',
@@ -57,6 +57,7 @@ test('permission refresh retires pending reads before temporarily clearing accou
   await flush();stream.emit('ready',{protocol,channelId});await flush();assert.ok(submitted);
   refreshing=context.openProfile().catch(error=>error.message);await flush();
   assert.equal(accessReads,2,'a changed permission list must enter identity refresh and await fresh access');
+  assert.equal(roadmapShown,null,'the former desk roadmap must clear while fresh access is pending');
   assert.equal(locationResets,1);assert.equal(node('gas-locations-page').hidden,true);
   assert.equal(parkLoanResets,1,'the Park and loan ticket must release the previous account draft');
   assert.equal(transportResets,1,'the Transport ticket must release the previous account draft');

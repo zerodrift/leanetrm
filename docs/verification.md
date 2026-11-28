@@ -1,5 +1,46 @@
 # Local verification and continuous integration
 
+## Scheduling roadmap and desk controls (D462, local)
+
+Run on 27 November 2026 on arm64 macOS with the pinned Node 24.22.0,
+Chrome for Testing 158, Python 3.13.18, .NET SDK 10.0.402 and PostgreSQL 18.7.
+The application check used this tree's API and assets with an owned disposable
+database and synthetic data.
+
+- `npm run build --prefix web` passes.
+- `node --test --test-concurrency=1` passes 108 focused checks, with no skips:
+  navigation groups, Scheduling desks, Facilities views and workspace,
+  Physical operations and grid, tab navigation, account refresh, assistant
+  walkthroughs, theme, workspace layout, roadmap and desk layout. The new
+  roadmap/layout files are `scheduling-roadmap-browser.test.mjs` and
+  `scheduling-layout-browser.test.mjs` under `web/tests`.
+- The checked-in `tests/browser/scheduling-roadmap.mjs` scenario passes all
+  eleven checks against the running isolated preview. It covers all four
+  desks, the limited trade-reader view, hiding the roadmap outside Scheduling,
+  opening the roadmap without changing the operating page, and phone menu
+  dismissal for both page changes and Facilities section changes. The scenario
+  is also called by `physical-workspace.mjs`; the full enclosing suite was not
+  run for this increment.
+- Browser geometry checks pass at widths 1280, 1000 and 390. Visual inspection
+  of the 1280 and 390 views and the collapsed desktop sidebar confirms that
+  desk controls fit one row, Scheduling labels remain readable, and the
+  roadmap cards stack within the phone viewport.
+
+The layout and roadmap checks failed before implementation. Independent review
+identified an assistant presentation target being displaced by the roadmap and
+stale roadmap visibility while new access was pending. Failing regressions
+preceded both fixes. Phone checks also reproduced a menu left open by desk
+navigation. Review of that fix found event-order interactions with controls
+becoming busy and a leave prompt receiving focus. A regression using the real
+leave prompt verifies Keep editing focus and Escape cancellation. The menu now
+closes during capture, before the destination handles the click; existing leave
+and pending-command decisions remain in the destination. Final independent
+review has no remaining findings in this increment.
+
+This verifies presentation and navigation only. It does not implement or qualify
+the workflows marked TBD. The complete frontend and `tools/check_all.py` suites,
+new commodity operations and hosted deployment were not run for this increment.
+
 ## Scheduling desks (D461, local)
 
 Run on 27 November 2026 on arm64 macOS with .NET SDK 10.0.402, PostgreSQL 18.7,

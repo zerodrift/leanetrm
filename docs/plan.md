@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D462 adds a desk-specific **Planned workflows** panel and the
+[Scheduling contribution roadmap](scheduling-roadmap.md). Crude parcels,
+pipeline movements, tank inventory across trades, shipping and time charters
+are explicitly TBD, alongside the listed Gas, Power and LNG gaps. These are
+contribution areas; their operating and financial contracts remain to be designed
+and implemented. Desk buttons fit one row and Scheduling labels wrap in the rail.
+
 D461 lists [Scheduling one desk at a time](physical-workspace.md#scheduling-desks-d461):
 Gas, Power, Crude or LNG, each with entries that are views of the existing
 Facilities and Physical operations pages. Lifecycle and Operating facilities are

@@ -1,5 +1,9 @@
 # Architecture and domain contracts
 
+D462 adds informational [Scheduling workflow placeholders](scheduling-roadmap.md)
+for each desk. They describe unimplemented contribution areas and create no
+business operations, financial policies or installation capabilities.
+
 D461 arranges the Scheduling sidebar group by desk. The entries are presentation
 views of the existing Facilities and Physical operations pages; page identity,
 permissions and every write are unchanged. `physical/operations/directory`
