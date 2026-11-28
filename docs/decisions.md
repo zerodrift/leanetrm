@@ -8232,6 +8232,7 @@ a list of billed days whose fixing was later corrected and reconciliation with
 accrued value remain separate consumers. See
 [the design](superpowers/specs/2026-11-27-indexed-gas-billing-design.md) and
 [the contract](gas-cash-billing.md#indexed-profile-d463).
+
 ## D464 — A monthly gas bill is a document over one trade's daily determinations
 
 Policies selected by the owner on 2026-11-28: a document's amounts are the sums
