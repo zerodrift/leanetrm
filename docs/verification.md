@@ -4,8 +4,8 @@
 
 Run locally on 2026-11-27 and 2026-11-28 (UTC) on macOS with stock PostgreSQL 18
 and the pinned .NET SDK, against disposable databases, synthetic data and a
-loopback synthetic tracker, on the branch after merging master. No real tracker
-was called.
+loopback synthetic tracker, on the branch after its last merge of master. No
+real tracker was called.
 
 Each new check was written before the code it exercises and failed first: the
 storage check on the missing permissions, the adapter check on the missing
@@ -17,11 +17,11 @@ missing catalog entry.
 | `tools/check_issue_reports.py` | Passes its four groups: policy, requests, uncertain delivery, dispatch authority |
 | `OpenEtrm.Api.Checks -- --issue-tracker` | Passes |
 | `tools/run_preview.py --issue-report-check` | Passes its three groups through the six routes |
-| `tools/run_preview.py --check --assistant-workspace-check` | Passes, 215 lines, including the assistant's draft, Review naming the repository, one issue on authorization, replay and a draft refused after the policy was disabled |
+| `tools/run_preview.py --check --assistant-workspace-check` | Passes, 216 lines, including the assistant's draft, Review naming the repository, one issue on authorization, replay and a draft refused after the policy was disabled |
 | `tools/run_preview.py --check --assistant-check` | Passes, 903 lines, after two expected updates |
 | `tools/run_preview.py --check` | Passes, 1,587 lines |
 | `OpenEtrm.Api.Checks -- --assistant-prompts`, `-- --assistant-workspace` | Pass unchanged |
-| `python -m unittest discover -s tests` | 213 tests pass, including the deployment guard for the tracker check endpoint and the check registration |
+| `python -m unittest discover -s tests` | 215 tests pass, including the deployment guard for the tracker check endpoint and the check registration |
 | `node --test web/tests/*.test.mjs` | See below |
 
 The two updates to `tools/check_model_providers.py` follow from migration 0414
@@ -32,7 +32,9 @@ delegated context is refused for submitting a report and for reading the
 policy. `web/tests/account-read-refresh.test.mjs` names the two new browser
 modules, which an account change now resets.
 
-The frontend suite ran 2,461 tests: 2,451 pass and 10 fail. The ten are the
+The frontend suite was run in full before the last merge of master, and the
+tests for these screens and for the assistant's workspace again after it. The
+full run had 2,461 tests: 2,451 pass and 10 fail. The ten are the
 "typed day quantity" tests of `deal-ticket-browser.test.mjs`, which fail the
 same way on untouched master with the locally installed browser; nothing in
 this change touches the deal ticket. CI decides them.
